@@ -268,6 +268,8 @@ class AnnotationProperties {
   // markup exclusive
   static const subject = "subject";
   static const title = "title";
+  static const inreplyto = "inreplyto";
+  static const replyType = "replyType";
   static const contentRect = "contentRect";
   static const rotation = "rotation";
 }
