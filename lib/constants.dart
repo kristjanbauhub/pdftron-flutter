@@ -50,6 +50,15 @@ class Functions {
   static const openBookmarkList = "openBookmarkList";
   static const openOutlineList = "openOutlineList";
   static const openLayersList = "openLayersList";
+  static const openThumbnailsView = "openThumbnailsView";
+  static const openRotateDialog = "openRotateDialog";
+  static const openAddPagesView = "openAddPagesView";
+  static const openViewSettings = "openViewSettings";
+  static const openCrop = "openCrop";
+  static const openManualCrop = "openManualCrop";
+  static const openSearch = "openSearch";
+  static const openTabSwitcher = "openTabSwitcher";
+  static const openGoToPageView = "openGoToPageView";
   static const openNavigationLists = "openNavigationLists";
   static const getCurrentPage = "getCurrentPage";
 }
@@ -76,6 +85,7 @@ class Parameters {
   static const annotationsWithFlags = "annotationsWithFlags";
   static const annotationProperties = "annotationProperties";
   static const leadingNavButtonIcon = "leadingNavButtonIcon";
+  static const sourceRect = "sourceRect";
   static const path = "path";
   static const exportFormat = "exportFormat";
   static const dpi = "dpi";
@@ -141,6 +151,7 @@ class Buttons {
   static const eraserButton = 'eraserButton';
   static const undo = 'undo';
   static const redo = 'redo';
+  static const showFileAttachmentButton = 'showFileAttachmentButton';
 
   // Android only
   static const editAnnotationToolbarButton = 'editAnnotationToolButton';
@@ -291,6 +302,8 @@ class AnnotationMenuItems {
   static const playSound = "playSound";
   static const openAttachment = "openAttachment";
   static const calibrate = "calibrate";
+  static const group = "group";
+  static const ungroup = "ungroup";
 }
 
 // DefaultToolbars define a set of pre-designed toolbars for easier customization
@@ -321,11 +334,12 @@ class ToolbarIcons {
   static const favorite = "PDFTron_Favorite";
 }
 
-  class ExportFormat {
-    static const BMP = "BMP";
-    static const JPEG =  "JPEG";
-    static const PNG = "PNG";
-  }
+class ExportFormat {
+  static const BMP = "BMP";
+  static const JPEG = "JPEG";
+  static const PNG = "PNG";
+}
+
 // PTOrientation defines the screen orientations for the viewer. Android only.
 class PTOrientation {
   static const unspecified = -1;
@@ -335,8 +349,10 @@ class PTOrientation {
   static const sensorPortrait = 7;
   static const reverseLandscape = 8;
   static const reversePortrait = 9;
-  static const userLandscape = 11; // Only changes direction if user has enabled sensor-based rotation.
-  static const userPortrait = 12; // Only changes direction if user has enabled sensor-based rotation.
+  static const userLandscape =
+      11; // Only changes direction if user has enabled sensor-based rotation.
+  static const userPortrait =
+      12; // Only changes direction if user has enabled sensor-based rotation.
 }
 
 // ViewModePickerItem defines the items in the view mode dialog.
