@@ -139,8 +139,6 @@ class AnnotProperty {
   // markup exclusive
   String subject;
   String title;
-  String inreplyto;
-  String replyType;
   Rect contentRect;
 
   AnnotProperty();
@@ -150,8 +148,6 @@ class AnnotProperty {
         AnnotationProperties.contents: contents,
         AnnotationProperties.subject: subject,
         AnnotationProperties.title: title,
-        AnnotationProperties.inreplyto: inreplyto,
-        AnnotationProperties.replyType: replyType,
         AnnotationProperties.contentRect: jsonEncode(rect),
         AnnotationProperties.rotation: rotation,
       };
