@@ -465,8 +465,11 @@ typedef enum {
 @end
 
 @interface BauhubTaskTool : PTCreateToolBase
-
 @property NSString *taskImageName;
+
+@end
+
+@interface BauhubPlusIconTool : PTCreateToolBase
 
 @end
 

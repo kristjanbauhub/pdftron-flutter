@@ -2633,6 +2633,8 @@
         // multi-select not implemented
     } else if ([toolMode containsString:@"BauhubTaskTool"]) {
         toolClass = [BauhubTaskTool class];
+    } else if ([toolMode containsString:@"BauhubPlusIconTool"]) {
+        toolClass = [BauhubPlusIconTool class];
     } else if([toolMode isEqualToString:PTAnnotationCreateStickyToolKey]) {
         toolClass = [PTStickyNoteCreate class];
     } else if ([toolMode isEqualToString:PTAnnotationCreateFreeHandToolKey]) {
@@ -3349,6 +3351,214 @@
         }
     }
 
+    // Tap handled.
+    return YES;
+}
+
+-(void)createImageStamp
+{
+    BOOL hasWriteLock = NO;
+
+    @try {
+        [self.pdfViewCtrl DocLock:YES];
+        hasWriteLock = YES;
+
+        PTPDFDoc *doc = [self.pdfViewCtrl GetDoc];
+        
+        PTPage* page = [doc GetPage:self.pageNumber];
+        PTPDFRect* stampRect = [[PTPDFRect alloc] initWithX1:0 y1:0 x2:self.image.size.width y2:self.image.size.height];
+        double maxWidth = 50.0;
+        double maxHeight = 50.0;
+
+        PTRotate ctrlRotation = [self.pdfViewCtrl GetRotation];
+        PTRotate pageRotation = [page GetRotation];
+        PTRotate viewRotation = ((pageRotation + ctrlRotation) % 4);
+
+        PTPDFRect* pageCropBox = [page GetCropBox];
+
+        if ([pageCropBox Width] < maxWidth)
+        {
+            maxWidth = [pageCropBox Width];
+        }
+        if ([pageCropBox Height] < maxHeight)
+        {
+            maxHeight = [pageCropBox Height];
+        }
+
+        if (viewRotation == e_pt90 || viewRotation == e_pt270) {
+            // Swap width and height if visible page is rotated 90 or 270 degrees
+            maxWidth = maxWidth + maxHeight;
+            maxHeight = maxWidth - maxHeight;
+            maxWidth = maxWidth - maxHeight;
+        }
+
+        CGFloat scaleFactor = MIN(maxWidth / [stampRect Width], maxHeight / [stampRect Height]);
+        CGFloat stampWidth = [stampRect Width] * scaleFactor;
+        CGFloat stampHeight = [stampRect Height] * scaleFactor;
+
+        if (ctrlRotation == e_pt90 || ctrlRotation == e_pt270) {
+            // Swap width and height if pdfViewCtrl is rotated 90 or 270 degrees
+            stampWidth = stampWidth + stampHeight;
+            stampHeight = stampWidth - stampHeight;
+            stampWidth = stampWidth - stampHeight;
+        }
+
+        PTStamper* stamper = [[PTStamper alloc] initWithSize_type:e_ptabsolute_size a:stampWidth b:stampHeight];
+        [stamper SetAlignment:e_pthorizontal_left vertical_alignment:e_ptvertical_bottom];
+        [stamper SetAsAnnotation:YES];
+
+        // Account for page rotation in the page-space touch point
+        PTMatrix2D *mtx = [page GetDefaultMatrix:NO box_type:e_ptcrop angle:0];
+        self.touchPtPage = [mtx Mult:self.touchPtPage];
+
+        CGFloat xPos = [self.touchPtPage getX] - (stampWidth / 2);
+        CGFloat yPos = [self.touchPtPage getY] - (stampHeight / 2);
+
+        double pageWidth = [[page GetCropBox] Width];
+        if (xPos > pageWidth - stampWidth)
+        {
+            xPos = pageWidth - stampWidth;
+        }
+        if (xPos < 0)
+        {
+            xPos = 0;
+        }
+        double pageHeight = [[page GetCropBox] Height];
+        if (yPos > pageHeight - stampHeight)
+        {
+            yPos = pageHeight - stampHeight;
+        }
+        if (yPos < 0)
+        {
+            yPos = 0;
+        }
+
+        [stamper SetPosition:xPos vertical_distance:yPos use_percentage:NO];
+
+        PTPageSet* pageSet = [[PTPageSet alloc] initWithOne_page:self.pageNumber];
+
+        NSData* data = UIImagePNGRepresentation(self.image);
+
+        PTObjSet* hintSet = [[PTObjSet alloc] init];
+        PTObj* encoderHints = [hintSet CreateArray];
+        [encoderHints PushBackName:@"JPEG"];
+
+        PTImage* stampImage = [PTImage CreateWithDataSimple:[doc GetSDFDoc] buf:data buf_size:data.length encoder_hints:encoderHints];
+
+        // Rotate stamp based on the pdfViewCtrl's rotation
+        PTRotate stampRotation = (4 - ctrlRotation) % 4; // 0 = 0, 90 = 1; 180 = 2, and 270 = 3
+        [stamper SetRotation:stampRotation * 90.0];
+        [stamper StampImage:doc src_img:stampImage dest_pages:pageSet];
+
+        int numAnnots = [page GetNumAnnots];
+
+        assert(numAnnots > 0);
+
+        PTAnnot* annot = [page GetAnnot:numAnnots - 1];
+        PTObj* obj = [annot GetSDFObj];
+        [obj PutString:PTImageStampAnnotationIdentifier value:@""];
+        [obj PutNumber:PTImageStampAnnotationRotationDegreeIdentifier value:0.0];
+
+        // Set up to transfer to PTAnnotEditTool
+        self.currentAnnotation = annot;
+        [self.currentAnnotation RefreshAppearance];
+
+        self.annotationPageNumber = self.pageNumber;
+
+        [self.pdfViewCtrl UpdateWithAnnot:annot page_num:self.pageNumber];
+
+    } @catch (NSException *exception) {
+        NSLog(@"Exception: %@, %@", exception.name, exception.reason);
+    } @finally {
+        if (hasWriteLock) {
+            [self.pdfViewCtrl DocUnlock];
+        }
+    }
+
+    if (self.currentAnnotation && self.annotationPageNumber > 0) {
+        [self annotationAdded:self.currentAnnotation onPageNumber:self.annotationPageNumber];
+    }
+}
+
+-(UIImage*)correctForRotation:(UIImage*)src
+{
+    UIGraphicsBeginImageContext(src.size);
+
+    [src drawAtPoint:CGPointMake(0, 0)];
+
+    UIImage* img =  UIGraphicsGetImageFromCurrentImageContext();
+
+    UIGraphicsEndImageContext();
+
+    return img;
+}
+
+@end
+
+#pragma mark - BauhubPlusIconTool
+@interface BauhubPlusIconTool () <UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate>
+
+@property (nonatomic, strong, nullable) UIImage *image;
+@property (nonatomic, strong, nullable) PTPDFPoint *touchPtPage;
+@property (nonatomic, assign) BOOL isPencilTouch;
+
+@end
+
+@implementation BauhubPlusIconTool
+
+@dynamic isPencilTouch;
+
+- (Class)annotClass
+{
+    return [PTRubberStamp class];
+}
+
++ (PTExtendedAnnotType)annotType
+{
+    return PTExtendedAnnotTypeImageStamp;
+}
+
+- (BOOL)pdfViewCtrl:(PTPDFViewCtrl *)pdfViewCtrl onTouchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+    return YES;
+}
+
+- (BOOL)pdfViewCtrl:(PTPDFViewCtrl *)pdfViewCtrl onTouchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+    return YES;
+}
+
+- (BOOL)pdfViewCtrl:(PTPDFViewCtrl *)pdfViewCtrl onTouchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+    return YES;
+}
+
+- (BOOL)pdfViewCtrl:(PTPDFViewCtrl *)pdfViewCtrl handleTap:(UITapGestureRecognizer *)gestureRecognizer
+{
+
+    if( !(self.isPencilTouch == YES || self.toolManager.annotationsCreatedWithPencilOnly == NO) )
+    {
+        return YES;
+    }
+
+    CGPoint touchPoint = [gestureRecognizer locationInView:self.pdfViewCtrl];
+
+    int pageNumber = [self.pdfViewCtrl GetPageNumberFromScreenPt:touchPoint.x y:touchPoint.y];
+    if (pageNumber < 1) {
+        return YES;
+    }
+    // Save page number for touch point.
+    _pageNumber = pageNumber;
+    self.endPoint = touchPoint;
+    self.touchPtPage = [self.pdfViewCtrl ConvScreenPtToPagePt:[[PTPDFPoint alloc] initWithPx:self.endPoint.x py:self.endPoint.y] page_num:_pageNumber];
+
+    UIImage *rawImage = [UIImage imageNamed:@"bauhubPlusIconTool"];
+    
+    if (rawImage) {
+        self.image = [self correctForRotation:rawImage];
+        [self createImageStamp];
+    }
+    
     // Tap handled.
     return YES;
 }
