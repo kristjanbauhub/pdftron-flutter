@@ -45,7 +45,7 @@ public class BauhubPlusIconTool extends Stamper {
 
     public BauhubPlusIconTool(@NonNull PDFViewCtrl ctrl) {
         super(ctrl);
-        this.rawImageInt = R.raw.bauhubPlusIconTool;
+        this.rawImageInt = R.raw.bauhub_plus_icon_tool;
         this.imageName = "bauhub_plus_icon_tool";
     }
 
