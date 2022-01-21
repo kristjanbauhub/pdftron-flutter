@@ -1,4 +1,4 @@
-package android.src.main.java.com.pdftron.pdftronflutter.bauhub;
+package com.pdftron.pdftronflutter.bauhub;
 
 import android.content.SharedPreferences;
 import android.content.res.Resources;
