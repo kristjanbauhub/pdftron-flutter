@@ -25,6 +25,7 @@ import com.pdftron.pdf.tools.ToolManager;
 import com.pdftron.pdf.utils.PdfViewCtrlSettingsManager;
 import com.pdftron.pdf.utils.Utils;
 import com.pdftron.pdftronflutter.bauhub.BauhubTaskTool;
+import com.pdftron.pdftronflutter.bauhub.BauhubPlusIconTool;
 import com.pdftron.pdftronflutter.R;
 import com.pdftron.pdftronflutter.helpers.PluginUtils;
 import com.pdftron.pdftronflutter.helpers.ViewerComponent;
@@ -124,6 +125,7 @@ public class DocumentView extends com.pdftron.pdf.controls.DocumentView2 impleme
         PluginUtils.ConfigInfo configInfo = PluginUtils.handleOpenDocument(mBuilder, mToolManagerBuilder, mPDFViewCtrlConfig, document, getContext(), configStr);
 
         mToolManagerBuilder.addCustomizedTool(BauhubTaskTool.MODE, BauhubTaskTool.class);
+        mToolManagerBuilder.addCustomizedTool(BauhubPlusIconTool.MODE, BauhubPlusIconTool.class);
 
         mInitialPageNumber = configInfo.getInitialPageNumber();
         mIsBase64 = configInfo.isBase64();
