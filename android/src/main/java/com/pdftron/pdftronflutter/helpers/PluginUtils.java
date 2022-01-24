@@ -3283,7 +3283,7 @@ public class PluginUtils {
         }
 
         if (toolModeString.contains("BauhubPlusIconTool")) {
-            tool = (Tool) toolManager.createTool(BauhubTaskTool.MODE, toolManager.getTool());
+            tool = (Tool) toolManager.createTool(BauhubPlusIconTool.MODE, toolManager.getTool());
         }
 
         boolean continuousAnnot = PdfViewCtrlSettingsManager.getContinuousAnnotationEdit(context);
