@@ -3282,6 +3282,10 @@ public class PluginUtils {
             ((BauhubTaskTool)tool).setImage(rawImageInt, imageName);
         }
 
+        if (toolModeString.contains("BauhubPlusIconTool")) {
+            tool = (Tool) toolManager.createTool(BauhubTaskTool.MODE, toolManager.getTool());
+        }
+
         boolean continuousAnnot = PdfViewCtrlSettingsManager.getContinuousAnnotationEdit(context);
         tool.setForceSameNextToolMode(continuousAnnot);
         toolManager.setTool(tool);
