@@ -108,6 +108,16 @@ class DocumentViewController {
         <String, dynamic>{Parameters.annotation: jsonEncode(annotation)});
   }
 
+  Future<bool> hideAnnotation(Annot annotation) {
+    return _channel.invokeMethod(Functions.hideAnnotation,
+        <String, dynamic>{Parameters.annotation: jsonEncode(annotation)});
+  }
+
+  Future<bool> showAnnotation(Annot annotation) {
+    return _channel.invokeMethod(Functions.showAnnotation,
+        <String, dynamic>{Parameters.annotation: jsonEncode(annotation)});
+  }
+
   Future<void> setFlagsForAnnotations(
       List<AnnotWithFlag> annotationWithFlagsList) {
     return _channel.invokeMethod(

@@ -242,6 +242,8 @@ public class PluginUtils {
 
     public static final String FUNCTION_SET_CUSTOM_DATA_FOR_ANNOTATION = "setCustomDataForAnnotation";
     public static final String FUNCTION_IS_BAUHUB_TOOL_MODE = "isBauhubToolMode";
+    public static final String FUNCTION_HIDE_ANNOTATION = "hideAnnotation";
+    public static final String FUNCTION_SHOW_ANNOTATION = "showAnnotation";
     public static final String FUNCTION_GET_PLATFORM_VERSION = "getPlatformVersion";
     public static final String FUNCTION_GET_VERSION = "getVersion";
     public static final String FUNCTION_INITIALIZE = "initialize";
@@ -756,8 +758,8 @@ public class PluginUtils {
     }
 
     public static ConfigInfo handleOpenDocument(@NonNull ViewerConfig.Builder builder, @NonNull ToolManagerBuilder toolManagerBuilder,
-            @NonNull PDFViewCtrlConfig pdfViewCtrlConfig, @NonNull String document, @NonNull Context context,
-            String configStr) {
+                                                @NonNull PDFViewCtrlConfig pdfViewCtrlConfig, @NonNull String document, @NonNull Context context,
+                                                String configStr) {
 
         builder
                 .maximumTabCount(Integer.MAX_VALUE)
@@ -2240,6 +2242,34 @@ public class PluginUtils {
                 isBauhubToolMode(result, component);
                 break;
             }
+            case FUNCTION_HIDE_ANNOTATION: {
+                checkFunctionPrecondition(component);
+                String annotation = call.argument(KEY_ANNOTATION);
+                try {
+                    hideAnnotation(result, component);
+                } catch (JSONException ex) {
+                    ex.printStackTrace();
+                    result.error(Integer.toString(ex.hashCode()), "JSONException Error: " + ex, null);
+                } catch (PDFNetException ex) {
+                    ex.printStackTrace();
+                    result.error(Long.toString(ex.getErrorCode()), "PDFTronException Error: " + ex, null);
+                }
+                break;
+            }
+            case FUNCTION_SHOW_ANNOTATION: {
+                checkFunctionPrecondition(component);
+                String annotation = call.argument(KEY_ANNOTATION);
+                try {
+                    showAnnotation(result, component);
+                } catch (JSONException ex) {
+                    ex.printStackTrace();
+                    result.error(Integer.toString(ex.hashCode()), "JSONException Error: " + ex, null);
+                } catch (PDFNetException ex) {
+                    ex.printStackTrace();
+                    result.error(Long.toString(ex.getErrorCode()), "PDFTronException Error: " + ex, null);
+                }
+                break;
+            }
             case FUNCTION_DELETE_ALL_ANNOTATIONS: {
                 checkFunctionPrecondition(component);
                 deleteAllAnnotations(result, component);
@@ -2702,6 +2732,52 @@ public class PluginUtils {
         if (!Utils.isNullOrEmpty(annotationId)) {
             toolManager.selectAnnot(annotationId, annotationPageNumber);
         }
+    }
+
+    private static void hideAnnotation(String annotation, MethodChannel.Result result, ViewerComponent component){
+        PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
+        PDFDoc pdfDoc = component.getPdfDoc();
+
+        if (null == pdfViewCtrl || null == pdfDoc) {
+            result.error("InvalidState", "Activity not attached", null);
+            return;
+        }
+
+        ToolManager toolManager = (ToolManager) pdfViewCtrl.getToolManager();
+
+        String annotationId = annotationJson.getString(KEY_ANNOTATION_ID);
+        int annotationPageNumber = annotationJson.getInt(KEY_PAGE_NUMBER);
+
+        Annot validAnnotation = ViewerUtils.getAnnotById(pdfViewCtrl, currentAnnotationId, annotationPageNumber);
+
+        if (validAnnotation == null || !validAnnotation.isValid()) {
+            return;
+        }
+
+        pdfViewCtrl.hideAnnotation(validAnnotation);
+    }
+
+    private static void showAnnotation(String annotation, MethodChannel.Result result, ViewerComponent component){
+        PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
+        PDFDoc pdfDoc = component.getPdfDoc();
+
+        if (null == pdfViewCtrl || null == pdfDoc) {
+            result.error("InvalidState", "Activity not attached", null);
+            return;
+        }
+
+        ToolManager toolManager = (ToolManager) pdfViewCtrl.getToolManager();
+
+        String annotationId = annotationJson.getString(KEY_ANNOTATION_ID);
+        int annotationPageNumber = annotationJson.getInt(KEY_PAGE_NUMBER);
+
+        Annot validAnnotation = ViewerUtils.getAnnotById(pdfViewCtrl, currentAnnotationId, annotationPageNumber);
+
+        if (validAnnotation == null || !validAnnotation.isValid()) {
+            return;
+        }
+
+        pdfViewCtrl.showAnnotation(validAnnotation);
     }
 
     private static void openAnnotationList(MethodChannel.Result result, ViewerComponent component) {

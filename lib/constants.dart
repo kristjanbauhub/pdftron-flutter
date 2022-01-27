@@ -4,6 +4,8 @@ part of pdftron;
 class Functions {
   static const setCustomDataForAnnotation = "setCustomDataForAnnotation";
   static const isBauhubToolMode = "isBauhubToolMode";
+  static const hideAnnotation = "hideAnnotation";
+  static const showAnnotation = "showAnnotation";
 
   static const getPlatformVersion = "getPlatformVersion";
   static const getVersion = "getVersion";

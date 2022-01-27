@@ -190,6 +190,8 @@ static NSString * const PTSquigglyWhiteListKey = @"Squiggly";
 // function
 static NSString * const PTSetCustomDataForAnnotationKey = @"setCustomDataForAnnotation";
 static NSString * const PTIsBauhubToolModeKey = @"isBauhubToolMode";
+static NSString * const PTHideAnnotationKey = @"hideAnnotation";
+static NSString * const PTShowAnnotationKey = @"showAnnotation";
 static NSString * const PTGetPlatformVersionKey = @"getPlatformVersion";
 static NSString * const PTGetVersionKey = @"getVersion";
 static NSString * const PTInitializeKey = @"initialize";

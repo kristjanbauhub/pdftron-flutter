@@ -1370,6 +1370,12 @@
         [self setCustomDataForAnnotation:annotation fieldNames:fieldNames resultToken:result];
     } else if ([call.method isEqualToString:PTIsBauhubToolModeKey]) {
         [self isBauhubToolMode:result];
+    } else if ([call.method isEqualToString:PTHideAnnotationKey]) {
+        NSString *annotation = [PdftronFlutterPlugin PT_idAsNSString:call.arguments[PTAnnotationArgumentKey]];
+        [self hideAnnotation:annotation resultToken:result];
+    } else if ([call.method isEqualToString:PTShowAnnotationKey]) {
+        NSString *annotation = [PdftronFlutterPlugin PT_idAsNSString:call.arguments[PTAnnotationArgumentKey]];
+        [self showAnnotation:annotation resultToken:result];
     } else if ([call.method isEqualToString:PTGetVersionKey]) {
         result([@"PDFNet " stringByAppendingFormat:@"%f", [PTPDFNet GetVersion]]);
     } else if ([call.method isEqualToString:PTInitializeKey]) {
@@ -2088,6 +2094,88 @@
     if(error) {
         NSLog(@"Error: Failed to select annotation from doc. %@", error.localizedDescription);
         flutterResult([FlutterError errorWithCode:@"select_annotations" message:@"Failed to select annotations" details:@"Error: Failed to select annotation from doc."]);
+    } else {
+        flutterResult(nil);
+    }
+}
+
+- (void)hideAnnotation:(NSString *)annotation resultToken:(FlutterResult)flutterResult
+{
+    PTDocumentController *documentController = [self getDocumentController];
+    if(documentController.document == Nil)
+    {
+        // something is wrong, no document.
+        NSLog(@"Error: The document view controller has no document.");
+        
+        flutterResult([FlutterError errorWithCode:@"hide_annotation" message:@"Failed to hide annotation" details:@"Error: The document view controller has no document."]);
+        return;
+    }
+    
+    
+    NSDictionary *annotationJson = [PdftronFlutterPlugin PT_idAsNSDict:[PdftronFlutterPlugin PT_JSONStringToId:annotation]];
+    
+    NSString *annotId = [PdftronFlutterPlugin PT_idAsNSString:annotationJson[PTAnnotIdKey]];
+    int pageNumber = [[PdftronFlutterPlugin PT_idAsNSNumber:annotationJson[PTAnnotPageNumberKey]] intValue];
+    
+    NSError* error;
+    
+    PTAnnot *annot = [PdftronFlutterPlugin findAnnotWithUniqueID:annotId onPageNumber:pageNumber documentController:documentController error:&error];
+    
+    if (error) {
+        NSLog(@"Error: Failed to find annotation with unique id. %@", error.localizedDescription);
+        
+        flutterResult([FlutterError errorWithCode:@"hide_annotation" message:@"Failed to hide annotation" details:@"Error: Failed to find annotation"]);
+        return;
+    }
+    
+    [documentController.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
+        [documentController.pdfViewCtrl HideAnnotation:annot];
+    } error:&error];
+    
+    if(error) {
+        NSLog(@"Error: Failed to hide annotation from doc. %@", error.localizedDescription);
+        flutterResult([FlutterError errorWithCode:@"hide_annotation" message:@"Failed to hide annotation" details:@"Error: Failed to hide annotation"]);
+    } else {
+        flutterResult(nil);
+    }
+}
+
+- (void)showAnnotation:(NSString *)annotation resultToken:(FlutterResult)flutterResult
+{
+    PTDocumentController *documentController = [self getDocumentController];
+    if(documentController.document == Nil)
+    {
+        // something is wrong, no document.
+        NSLog(@"Error: The document view controller has no document.");
+        
+        flutterResult([FlutterError errorWithCode:@"show_annotation" message:@"Failed to show annotation" details:@"Error: The document view controller has no document."]);
+        return;
+    }
+    
+    
+    NSDictionary *annotationJson = [PdftronFlutterPlugin PT_idAsNSDict:[PdftronFlutterPlugin PT_JSONStringToId:annotation]];
+    
+    NSString *annotId = [PdftronFlutterPlugin PT_idAsNSString:annotationJson[PTAnnotIdKey]];
+    int pageNumber = [[PdftronFlutterPlugin PT_idAsNSNumber:annotationJson[PTAnnotPageNumberKey]] intValue];
+    
+    NSError* error;
+    
+    PTAnnot *annot = [PdftronFlutterPlugin findAnnotWithUniqueID:annotId onPageNumber:pageNumber documentController:documentController error:&error];
+    
+    if (error) {
+        NSLog(@"Error: Failed to find annotation with unique id. %@", error.localizedDescription);
+        
+        flutterResult([FlutterError errorWithCode:@"show_annotation" message:@"Failed to show annotation" details:@"Error: Failed to find annotation"]);
+        return;
+    }
+    
+    [documentController.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
+        [documentController.pdfViewCtrl ShowAnnotation:annot];
+    } error:&error];
+    
+    if(error) {
+        NSLog(@"Error: Failed to hide annotation from doc. %@", error.localizedDescription);
+        flutterResult([FlutterError errorWithCode:@"show_annotation" message:@"Failed to show annotation" details:@"Error: Failed to hide annotation"]);
     } else {
         flutterResult(nil);
     }
