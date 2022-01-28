@@ -2246,7 +2246,7 @@ public class PluginUtils {
                 checkFunctionPrecondition(component);
                 String annotation = call.argument(KEY_ANNOTATION);
                 try {
-                    hideAnnotation(result, component);
+                    hideAnnotation(annotation, result, component);
                 } catch (JSONException ex) {
                     ex.printStackTrace();
                     result.error(Integer.toString(ex.hashCode()), "JSONException Error: " + ex, null);
@@ -2260,7 +2260,7 @@ public class PluginUtils {
                 checkFunctionPrecondition(component);
                 String annotation = call.argument(KEY_ANNOTATION);
                 try {
-                    showAnnotation(result, component);
+                    showAnnotation(annotation, result, component);
                 } catch (JSONException ex) {
                     ex.printStackTrace();
                     result.error(Integer.toString(ex.hashCode()), "JSONException Error: " + ex, null);
