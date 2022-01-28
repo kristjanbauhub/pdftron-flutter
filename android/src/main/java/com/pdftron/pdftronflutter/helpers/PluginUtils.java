@@ -2734,7 +2734,7 @@ public class PluginUtils {
         }
     }
 
-    private static void hideAnnotation(String annotation, MethodChannel.Result result, ViewerComponent component){
+    private static void hideAnnotation(String annotation, MethodChannel.Result result, ViewerComponent component)  throws PDFNetException, JSONException {
         PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
         PDFDoc pdfDoc = component.getPdfDoc();
 
@@ -2758,7 +2758,7 @@ public class PluginUtils {
         pdfViewCtrl.hideAnnotation(validAnnotation);
     }
 
-    private static void showAnnotation(String annotation, MethodChannel.Result result, ViewerComponent component){
+    private static void showAnnotation(String annotation, MethodChannel.Result result, ViewerComponent component) throws PDFNetException, JSONException {
         PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
         PDFDoc pdfDoc = component.getPdfDoc();
 
