@@ -2742,27 +2742,20 @@ public class PluginUtils {
             result.error("InvalidState", "Activity not attached", null);
             return;
         }
-        Log.d("TAG", "message");
         ToolManager toolManager = (ToolManager) pdfViewCtrl.getToolManager();
 
-        Log.d("TAG", "message");
         JSONObject annotationJson = new JSONObject(annotation);
-        Log.d("TAG", annotationJson);
         String annotationId = annotationJson.getString(KEY_ANNOTATION_ID);
-        Log.d("TAG", "message");
         int annotationPageNumber = annotationJson.getInt(KEY_PAGE_NUMBER);
 
-        Log.d("TAG", "message");
         Annot validAnnotation = ViewerUtils.getAnnotById(pdfViewCtrl, annotationId, annotationPageNumber);
 
-        Log.d("TAG", "message");
         if (validAnnotation == null || !validAnnotation.isValid()) {
             return;
         }
 
-        Log.d("TAG", annotationPageNumber);
         pdfViewCtrl.hideAnnotation(validAnnotation);
-        Log.d("TAG", "peidan");
+        pdfViewCtrl.update(validAnnotation, annotationPageNumber);
     }
 
     private static void showAnnotation(String annotation, MethodChannel.Result result, ViewerComponent component) throws PDFNetException, JSONException {
@@ -2787,6 +2780,7 @@ public class PluginUtils {
         }
 
         pdfViewCtrl.showAnnotation(validAnnotation);
+        pdfViewCtrl.update(validAnnotation, annotationPageNumber);
     }
 
     private static void openAnnotationList(MethodChannel.Result result, ViewerComponent component) {
