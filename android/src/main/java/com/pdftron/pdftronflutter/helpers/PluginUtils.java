@@ -2742,19 +2742,25 @@ public class PluginUtils {
             result.error("InvalidState", "Activity not attached", null);
             return;
         }
-
+        Log.d("TAG", "message");
         ToolManager toolManager = (ToolManager) pdfViewCtrl.getToolManager();
 
+        Log.d("TAG", "message");
         JSONObject annotationJson = new JSONObject(annotation);
+        Log.d("TAG", "message");
         String annotationId = annotationJson.getString(KEY_ANNOTATION_ID);
+        Log.d("TAG", "message");
         int annotationPageNumber = annotationJson.getInt(KEY_PAGE_NUMBER);
 
+        Log.d("TAG", "message");
         Annot validAnnotation = ViewerUtils.getAnnotById(pdfViewCtrl, annotationId, annotationPageNumber);
 
+        Log.d("TAG", "message");
         if (validAnnotation == null || !validAnnotation.isValid()) {
             return;
         }
 
+        Log.d("TAG", "message");
         pdfViewCtrl.hideAnnotation(validAnnotation);
     }
 
