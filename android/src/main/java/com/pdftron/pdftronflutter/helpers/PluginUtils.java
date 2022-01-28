@@ -2745,10 +2745,11 @@ public class PluginUtils {
 
         ToolManager toolManager = (ToolManager) pdfViewCtrl.getToolManager();
 
+        JSONObject annotationJson = new JSONObject(annotation);
         String annotationId = annotationJson.getString(KEY_ANNOTATION_ID);
         int annotationPageNumber = annotationJson.getInt(KEY_PAGE_NUMBER);
 
-        Annot validAnnotation = ViewerUtils.getAnnotById(pdfViewCtrl, currentAnnotationId, annotationPageNumber);
+        Annot validAnnotation = ViewerUtils.getAnnotById(pdfViewCtrl, annotationId, annotationPageNumber);
 
         if (validAnnotation == null || !validAnnotation.isValid()) {
             return;
@@ -2768,10 +2769,11 @@ public class PluginUtils {
 
         ToolManager toolManager = (ToolManager) pdfViewCtrl.getToolManager();
 
+        JSONObject annotationJson = new JSONObject(annotation);
         String annotationId = annotationJson.getString(KEY_ANNOTATION_ID);
         int annotationPageNumber = annotationJson.getInt(KEY_PAGE_NUMBER);
 
-        Annot validAnnotation = ViewerUtils.getAnnotById(pdfViewCtrl, currentAnnotationId, annotationPageNumber);
+        Annot validAnnotation = ViewerUtils.getAnnotById(pdfViewCtrl, annotationId, annotationPageNumber);
 
         if (validAnnotation == null || !validAnnotation.isValid()) {
             return;
