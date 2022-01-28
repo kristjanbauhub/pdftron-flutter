@@ -2747,7 +2747,7 @@ public class PluginUtils {
 
         Log.d("TAG", "message");
         JSONObject annotationJson = new JSONObject(annotation);
-        Log.d("TAG", "message");
+        Log.d("TAG", annotationJson);
         String annotationId = annotationJson.getString(KEY_ANNOTATION_ID);
         Log.d("TAG", "message");
         int annotationPageNumber = annotationJson.getInt(KEY_PAGE_NUMBER);
@@ -2760,8 +2760,9 @@ public class PluginUtils {
             return;
         }
 
-        Log.d("TAG", "message");
+        Log.d("TAG", annotationPageNumber);
         pdfViewCtrl.hideAnnotation(validAnnotation);
+        Log.d("TAG", "peidan");
     }
 
     private static void showAnnotation(String annotation, MethodChannel.Result result, ViewerComponent component) throws PDFNetException, JSONException {
