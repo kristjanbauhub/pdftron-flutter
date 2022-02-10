@@ -3807,8 +3807,8 @@
         
         PTPage* page = [doc GetPage:self.pageNumber];
         PTPDFRect* stampRect = [[PTPDFRect alloc] initWithX1:0 y1:0 x2:self.image.size.width y2:self.image.size.height];
-        double maxWidth = 50.0;
-        double maxHeight = 50.0;
+        double maxWidth = 25.0;
+        double maxHeight = 25.0;
 
         PTRotate ctrlRotation = [self.pdfViewCtrl GetRotation];
         PTRotate pageRotation = [page GetRotation];

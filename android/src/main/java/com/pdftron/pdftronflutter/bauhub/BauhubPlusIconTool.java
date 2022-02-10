@@ -107,8 +107,8 @@ public class BauhubPlusIconTool extends Stamper {
                 Utils.getDisplaySize(this.mPdfViewCtrl.getContext(), size);
                 int screenWidth = size.x < size.y ? size.x : size.y;
                 int screenHeight = size.x < size.y ? size.y : size.x;
-                double maxImageHeightPixels = 100.0;
-                double maxImageWidthPixels = 100.0;
+                double maxImageHeightPixels = 50.0;
+                double maxImageWidthPixels = 50.0;
                 double[] point1 = this.mPdfViewCtrl.convScreenPtToPagePt(0.0D, 0.0D, pageNum);
                 double[] point2 = this.mPdfViewCtrl.convScreenPtToPagePt(20.0D, 20.0D, pageNum);
                 double pixelsToPageRatio = Math.abs(point1[0] - point2[0]) / 20.0D;
