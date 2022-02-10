@@ -1373,6 +1373,9 @@
     } else if ([call.method isEqualToString:PTHideAnnotationKey]) {
         NSString *annotation = [PdftronFlutterPlugin PT_idAsNSString:call.arguments[PTAnnotationArgumentKey]];
         [self hideAnnotation:annotation resultToken:result];
+    } else if ([call.method isEqualToString:PTHideAllAnnotationsKey]) {
+        NSNumber *pageNumber = [PdftronFlutterPlugin PT_idAsNSNumber:call.arguments[PTPageNumberArgumentKey]];
+        [self hideAllAnnotations:pageNumber resultToken:result];
     } else if ([call.method isEqualToString:PTShowAnnotationKey]) {
         NSString *annotation = [PdftronFlutterPlugin PT_idAsNSString:call.arguments[PTAnnotationArgumentKey]];
         [self showAnnotation:annotation resultToken:result];
@@ -2136,6 +2139,37 @@
     if(error) {
         NSLog(@"Error: Failed to hide annotation from doc. %@", error.localizedDescription);
         flutterResult([FlutterError errorWithCode:@"hide_annotation" message:@"Failed to hide annotation" details:@"Error: Failed to hide annotation"]);
+    } else {
+        flutterResult(nil);
+    }
+}
+
+- (void)hideAllAnnotations:(NSNumber *)pageNumber resultToken:(FlutterResult)flutterResult
+{
+    PTDocumentController *documentController = [self getDocumentController];
+    if(documentController.document == Nil)
+    {
+        // something is wrong, no document.
+        NSLog(@"Error: The document view controller has no document.");
+
+        flutterResult([FlutterError errorWithCode:@"hide_all_annotations" message:@"Failed to hide all annotations" details:@"Error: The document view controller has no document."]);
+        return;
+    }
+
+    NSError* error;
+    
+    NSArray<PTAnnot *> *annotations = [documentController.pdfViewCtrl GetAnnotationsOnPage:[pageNumber intValue]];
+
+    [documentController.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
+        for (id annot in annotations) {
+            [documentController.pdfViewCtrl HideAnnotation:annot];
+        }
+        [documentController.pdfViewCtrl Update];
+    } error:&error];
+
+    if(error) {
+        NSLog(@"Error: Failed to hide annotation from doc. %@", error.localizedDescription);
+        flutterResult([FlutterError errorWithCode:@"hide_all_annotations" message:@"Failed to hide all annotations" details:@"Error: Failed to hide all annotations"]);
     } else {
         flutterResult(nil);
     }
