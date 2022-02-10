@@ -243,6 +243,7 @@ public class PluginUtils {
     public static final String FUNCTION_SET_CUSTOM_DATA_FOR_ANNOTATION = "setCustomDataForAnnotation";
     public static final String FUNCTION_IS_BAUHUB_TOOL_MODE = "isBauhubToolMode";
     public static final String FUNCTION_HIDE_ANNOTATION = "hideAnnotation";
+    public static final String FUNCTION_HIDE_ALL_ANNOTATIONS = "hideAllAnnotations";
     public static final String FUNCTION_SHOW_ANNOTATION = "showAnnotation";
     public static final String FUNCTION_GET_PLATFORM_VERSION = "getPlatformVersion";
     public static final String FUNCTION_GET_VERSION = "getVersion";
@@ -2256,6 +2257,20 @@ public class PluginUtils {
                 }
                 break;
             }
+            case FUNCTION_HIDE_ALL_ANNOTATIONS: {
+                checkFunctionPrecondition(component);
+                Integer pageNumber = call.argument(KEY_PAGE_NUMBER);
+                try {
+                    hideAllAnnotations(pageNumber, result, component);
+                } catch (JSONException ex) {
+                    ex.printStackTrace();
+                    result.error(Integer.toString(ex.hashCode()), "JSONException Error: " + ex, null);
+                } catch (PDFNetException ex) {
+                    ex.printStackTrace();
+                    result.error(Long.toString(ex.getErrorCode()), "PDFTronException Error: " + ex, null);
+                }
+                break;
+            }
             case FUNCTION_SHOW_ANNOTATION: {
                 checkFunctionPrecondition(component);
                 String annotation = call.argument(KEY_ANNOTATION);
@@ -2756,6 +2771,22 @@ public class PluginUtils {
 
         pdfViewCtrl.hideAnnotation(validAnnotation);
         pdfViewCtrl.update(validAnnotation, annotationPageNumber);
+    }
+
+    private static void hideAllAnnotations(Integer pageNumber, MethodChannel.Result result, ViewerComponent component)  throws PDFNetException, JSONException {
+        PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
+        PDFDoc pdfDoc = component.getPdfDoc();
+
+        if (null == pdfViewCtrl || null == pdfDoc) {
+            result.error("InvalidState", "Activity not attached", null);
+            return;
+        }
+        ArrayList<Annot> annotations = pdfViewCtrl.getAnnotationsOnPage(pageNumber);
+
+        for (Annot ann : annotations) {
+            pdfViewCtrl.hideAnnotation(ann);
+        }
+        pdfViewCtrl.update(true);
     }
 
     private static void showAnnotation(String annotation, MethodChannel.Result result, ViewerComponent component) throws PDFNetException, JSONException {
