@@ -2130,6 +2130,7 @@
     
     [documentController.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
         [documentController.pdfViewCtrl HideAnnotation:annot];
+        [documentController.pdfViewCtrl UpdateWithAnnot:annot page_num:pageNumber];
     } error:&error];
     
     if(error) {
@@ -2171,6 +2172,7 @@
     
     [documentController.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
         [documentController.pdfViewCtrl ShowAnnotation:annot];
+        [documentController.pdfViewCtrl UpdateWithAnnot:annot page_num:pageNumber];
     } error:&error];
     
     if(error) {
