@@ -5,6 +5,7 @@ class Functions {
   static const setCustomDataForAnnotation = "setCustomDataForAnnotation";
   static const isBauhubToolMode = "isBauhubToolMode";
   static const hideAnnotation = "hideAnnotation";
+  static const hideAllAnnotations = "hideAllAnnotations";
   static const showAnnotation = "showAnnotation";
 
   static const getPlatformVersion = "getPlatformVersion";
