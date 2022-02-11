@@ -295,11 +295,11 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
     if ([self.toolManager.tool isKindOfClass:[PTCreateToolBase class]] ||
         [self.toolManager.tool isKindOfClass:[PTFreeTextCreate class]]) {
         // Workaround to disable undo/redo in the presets bar if necessary
-        if(self.toolManager.undoManager.undoRegistrationEnabled){
-            [self.toolManager.tool.undoManager enableUndoRegistration];
-        }else{
-            [self.toolManager.tool.undoManager disableUndoRegistration];
-        }
+        // if(self.toolManager.undoManager.undoRegistrationEnabled){
+        //     [self.toolManager.tool.undoManager enableUndoRegistration];
+        // }else{
+        //     [self.toolManager.tool.undoManager disableUndoRegistration];
+        // }
     }
 }
 
