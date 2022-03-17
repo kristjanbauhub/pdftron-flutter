@@ -3691,8 +3691,8 @@
         PTMatrix2D *mtx = [page GetDefaultMatrix:NO box_type:e_ptcrop angle:0];
         self.touchPtPage = [mtx Mult:self.touchPtPage];
 
-        CGFloat xPos = 10;
-        CGFloat yPos = 10;
+        CGFloat xPos = [self.touchPtPage getX] - (stampWidth / 2);
+        CGFloat yPos = [self.touchPtPage getY] - (stampHeight / 2);
 
         double pageWidth = [[page GetCropBox] Width];
         if (xPos > pageWidth - stampWidth)
