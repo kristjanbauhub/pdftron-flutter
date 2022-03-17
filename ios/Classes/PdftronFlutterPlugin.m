@@ -3644,7 +3644,7 @@
         hasWriteLock = YES;
 
         PTPDFDoc *doc = [self.pdfViewCtrl GetDoc];
-        
+
         PTPage* page = [doc GetPage:self.pageNumber];
         PTPDFRect* stampRect = [[PTPDFRect alloc] initWithX1:0 y1:0 x2:self.image.size.width y2:self.image.size.height];
         double maxWidth = 50.0;
@@ -3654,22 +3654,20 @@
         PTRotate pageRotation = [page GetRotation];
         PTRotate viewRotation = ((pageRotation + ctrlRotation) % 4);
 
-        PTPDFRect* pageCropBox = [page GetCropBox];
-
-        if ([pageCropBox Width] < maxWidth)
+        if ([page GetPageWidth:(e_ptcrop)] < maxWidth)
         {
-            maxWidth = [pageCropBox Width];
+            maxWidth = [page GetPageWidth:(e_ptcrop)];
         }
-        if ([pageCropBox Height] < maxHeight)
+        if ([page GetPageHeight:(e_ptcrop)] < maxHeight)
         {
-            maxHeight = [pageCropBox Height];
+            maxHeight = [page GetPageHeight:(e_ptcrop)];
         }
 
         if (viewRotation == e_pt90 || viewRotation == e_pt270) {
             // Swap width and height if visible page is rotated 90 or 270 degrees
-            //maxWidth = maxWidth + maxHeight;
-            //maxHeight = maxWidth - maxHeight;
-            //maxWidth = maxWidth - maxHeight;
+            maxWidth = maxWidth + maxHeight;
+            maxHeight = maxWidth - maxHeight;
+            maxWidth = maxWidth - maxHeight;
         }
 
         CGFloat scaleFactor = MIN(maxWidth / [stampRect Width], maxHeight / [stampRect Height]);
@@ -3678,9 +3676,9 @@
 
         if (ctrlRotation == e_pt90 || ctrlRotation == e_pt270) {
             // Swap width and height if pdfViewCtrl is rotated 90 or 270 degrees
-            //stampWidth = stampWidth + stampHeight;
-            //stampHeight = stampWidth - stampHeight;
-            //stampWidth = stampWidth - stampHeight;
+            stampWidth = stampWidth + stampHeight;
+            stampHeight = stampWidth - stampHeight;
+            stampWidth = stampWidth - stampHeight;
         }
 
         PTStamper* stamper = [[PTStamper alloc] initWithSize_type:e_ptabsolute_size a:stampWidth b:stampHeight];
@@ -3694,9 +3692,7 @@
         CGFloat xPos = [self.touchPtPage getX] - (stampWidth / 2);
         CGFloat yPos = [self.touchPtPage getY] - (stampHeight / 2);
 
-        NSLog(@"Kristjan siin: %@, %@, %@, %@, %@, %@, %@", ctrlRotation, pageRotation, viewRotation, [[page GetCropBox] Width], [[page GetCropBox] Height], xPos, yPos);
-
-        double pageWidth = [[page GetCropBox] Width];
+        double pageWidth = [page GetPageWidth:(e_ptcrop)];
         if (xPos > pageWidth - stampWidth)
         {
             xPos = pageWidth - stampWidth;
@@ -3705,7 +3701,7 @@
         {
             xPos = 0;
         }
-        double pageHeight = [[page GetCropBox] Height];
+        double pageHeight = [page GetPageHeight:(e_ptcrop)];
         if (yPos > pageHeight - stampHeight)
         {
             yPos = pageHeight - stampHeight;
@@ -3729,7 +3725,11 @@
 
         // Rotate stamp based on the pdfViewCtrl's rotation
 
-        PTRotate stampRotation = (4 - ctrlRotation) % 4; // 0 = 0, 90 = 1; 180 = 2, and 270 = 3 ,, (4 - ctrlRotation) % 4
+        PTRotate stampRotation = (4 - ctrlRotation) % 4; // 0 = 0, 90 = 1; 180 = 2, and 270 = 3
+        if ([page GetPageWidth:(e_ptcrop)] == [[page GetCropBox] Height] && [page GetPageHeight:(e_ptcrop)] == [[page GetCropBox] Width]) {
+            stampRotation = (4 - ctrlRotation - 1) % 4;
+        }
+
         [stamper SetRotation:stampRotation * 90.0];
         [stamper StampImage:doc src_img:stampImage dest_pages:pageSet];
 
@@ -3836,12 +3836,12 @@
     self.touchPtPage = [self.pdfViewCtrl ConvScreenPtToPagePt:[[PTPDFPoint alloc] initWithPx:self.endPoint.x py:self.endPoint.y] page_num:_pageNumber];
 
     UIImage *rawImage = [UIImage imageNamed:@"bauhubPlusIconTool"];
-    
+
     if (rawImage) {
         self.image = [self correctForRotation:rawImage];
         [self createImageStamp];
     }
-    
+
     // Tap handled.
     return YES;
 }
@@ -3855,7 +3855,7 @@
         hasWriteLock = YES;
 
         PTPDFDoc *doc = [self.pdfViewCtrl GetDoc];
-        
+
         PTPage* page = [doc GetPage:self.pageNumber];
         PTPDFRect* stampRect = [[PTPDFRect alloc] initWithX1:0 y1:0 x2:self.image.size.width y2:self.image.size.height];
         double maxWidth = 25.0;
@@ -3865,15 +3865,13 @@
         PTRotate pageRotation = [page GetRotation];
         PTRotate viewRotation = ((pageRotation + ctrlRotation) % 4);
 
-        PTPDFRect* pageCropBox = [page GetCropBox];
-
-        if ([pageCropBox Width] < maxWidth)
+        if ([page GetPageWidth:(e_ptcrop)] < maxWidth)
         {
-            maxWidth = [pageCropBox Width];
+            maxWidth = [page GetPageWidth:(e_ptcrop)];
         }
-        if ([pageCropBox Height] < maxHeight)
+        if ([page GetPageHeight:(e_ptcrop)] < maxHeight)
         {
-            maxHeight = [pageCropBox Height];
+            maxHeight = [page GetPageHeight:(e_ptcrop)];
         }
 
         if (viewRotation == e_pt90 || viewRotation == e_pt270) {
@@ -3905,7 +3903,7 @@
         CGFloat xPos = [self.touchPtPage getX] - (stampWidth / 2);
         CGFloat yPos = [self.touchPtPage getY] - (stampHeight / 2);
 
-        double pageWidth = [[page GetCropBox] Width];
+        double pageWidth = [page GetPageWidth:(e_ptcrop)];
         if (xPos > pageWidth - stampWidth)
         {
             xPos = pageWidth - stampWidth;
@@ -3914,7 +3912,7 @@
         {
             xPos = 0;
         }
-        double pageHeight = [[page GetCropBox] Height];
+        double pageHeight = [page GetPageHeight:(e_ptcrop)];
         if (yPos > pageHeight - stampHeight)
         {
             yPos = pageHeight - stampHeight;
