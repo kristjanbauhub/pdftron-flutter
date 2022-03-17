@@ -3667,9 +3667,9 @@
 
         if (viewRotation == e_pt90 || viewRotation == e_pt270) {
             // Swap width and height if visible page is rotated 90 or 270 degrees
-            maxWidth = maxWidth + maxHeight;
-            maxHeight = maxWidth - maxHeight;
-            maxWidth = maxWidth - maxHeight;
+            //maxWidth = maxWidth + maxHeight;
+            //maxHeight = maxWidth - maxHeight;
+            //maxWidth = maxWidth - maxHeight;
         }
 
         CGFloat scaleFactor = MIN(maxWidth / [stampRect Width], maxHeight / [stampRect Height]);
@@ -3678,9 +3678,9 @@
 
         if (ctrlRotation == e_pt90 || ctrlRotation == e_pt270) {
             // Swap width and height if pdfViewCtrl is rotated 90 or 270 degrees
-            stampWidth = stampWidth + stampHeight;
-            stampHeight = stampWidth - stampHeight;
-            stampWidth = stampWidth - stampHeight;
+            //stampWidth = stampWidth + stampHeight;
+            //stampHeight = stampWidth - stampHeight;
+            //stampWidth = stampWidth - stampHeight;
         }
 
         PTStamper* stamper = [[PTStamper alloc] initWithSize_type:e_ptabsolute_size a:stampWidth b:stampHeight];
@@ -3691,8 +3691,8 @@
         PTMatrix2D *mtx = [page GetDefaultMatrix:NO box_type:e_ptcrop angle:0];
         self.touchPtPage = [mtx Mult:self.touchPtPage];
 
-        CGFloat xPos = [self.touchPtPage getX] - (stampWidth / 2);
-        CGFloat yPos = [self.touchPtPage getY] - (stampHeight / 2);
+        CGFloat xPos = 10;
+        CGFloat yPos = 10;
 
         double pageWidth = [[page GetCropBox] Width];
         if (xPos > pageWidth - stampWidth)
