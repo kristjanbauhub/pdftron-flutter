@@ -3726,7 +3726,7 @@
         PTImage* stampImage = [PTImage CreateWithDataSimple:[doc GetSDFDoc] buf:data buf_size:data.length encoder_hints:encoderHints];
 
         // Rotate stamp based on the pdfViewCtrl's rotation
-        PTRotate stampRotation = (4 - ctrlRotation) % 4; // 0 = 0, 90 = 1; 180 = 2, and 270 = 3
+        PTRotate stampRotation = 0; // 0 = 0, 90 = 1; 180 = 2, and 270 = 3
         [stamper SetRotation:stampRotation * 90.0];
         [stamper StampImage:doc src_img:stampImage dest_pages:pageSet];
 
