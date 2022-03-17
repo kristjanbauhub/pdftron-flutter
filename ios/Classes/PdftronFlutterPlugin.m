@@ -3694,6 +3694,8 @@
         CGFloat xPos = [self.touchPtPage getX] - (stampWidth / 2);
         CGFloat yPos = [self.touchPtPage getY] - (stampHeight / 2);
 
+        NSLog(@"Kristjan siin: %@, %@, %@, %@, %@, %@, %@", ctrlRotation, pageRotation, viewRotation, [[page GetCropBox] Width], [[page GetCropBox] Height], xPos, yPos);
+
         double pageWidth = [[page GetCropBox] Width];
         if (xPos > pageWidth - stampWidth)
         {
@@ -3726,7 +3728,8 @@
         PTImage* stampImage = [PTImage CreateWithDataSimple:[doc GetSDFDoc] buf:data buf_size:data.length encoder_hints:encoderHints];
 
         // Rotate stamp based on the pdfViewCtrl's rotation
-        PTRotate stampRotation = 1; // 0 = 0, 90 = 1; 180 = 2, and 270 = 3
+
+        PTRotate stampRotation = (4 - ctrlRotation) % 4; // 0 = 0, 90 = 1; 180 = 2, and 270 = 3 ,, (4 - ctrlRotation) % 4
         [stamper SetRotation:stampRotation * 90.0];
         [stamper StampImage:doc src_img:stampImage dest_pages:pageSet];
 
