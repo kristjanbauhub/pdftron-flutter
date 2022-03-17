@@ -15,7 +15,6 @@ class _DocumentViewState extends State<DocumentView> {
   @override
   Widget build(BuildContext context) {
     final String viewType = 'pdftron_flutter/documentview';
-    //TODO commit
 
     if (Platform.isAndroid) {
       return PlatformViewLink(
