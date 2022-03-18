@@ -1,6 +1,6 @@
 part of pdftron;
 
-/// Defines the names of the functions.
+// Functions define the names of the functions
 class Functions {
   static const setCustomDataForAnnotation = "setCustomDataForAnnotation";
   static const isBauhubToolMode = "isBauhubToolMode";
@@ -68,7 +68,7 @@ class Functions {
   static const getCurrentPage = "getCurrentPage";
 }
 
-/// Defines the parameters of the functions.
+// Parameters define the parameters of the functions
 class Parameters {
   static const licenseKey = "licenseKey";
   static const document = "document";
@@ -97,7 +97,7 @@ class Parameters {
   static const requestedOrientation = "requestedOrientation";
 }
 
-/// Defines the parameters of the events.
+// Parameters define the parameters of the events
 class EventParameters {
   static const action = "action";
   static const annotations = "annotations";
@@ -110,7 +110,7 @@ class EventParameters {
   static const pageNumber = "pageNumber";
 }
 
-/// Defines the various kinds of buttons for the viewer.
+// Buttons define the various kinds of buttons for the viewer
 class Buttons {
   static const viewControlsButton = 'viewControlsButton';
   static const freeHandToolButton = 'freeHandToolButton';
@@ -158,14 +158,14 @@ class Buttons {
   static const redo = 'redo';
   static const showFileAttachmentButton = 'showFileAttachmentButton';
 
-  /// Android only.
+  // Android only
   static const editAnnotationToolbarButton = 'editAnnotationToolButton';
   static const saveReducedCopyButton = 'saveReducedCopyButton';
   static const saveCroppedCopyButton = 'saveCroppedCopyButton';
   static const savePasswordCopyButton = 'savePasswordCopyButton';
 }
 
-/// Defines the various kinds of tools for the viewer.
+// Tools define the various kinds of tools for the viewer
 class Tools {
   static const annotationEdit = 'AnnotationEdit';
   static const textSelect = 'TextSelect';
@@ -213,17 +213,15 @@ class Tools {
   static const formCreateComboBoxField = 'FormCreateComboBoxField';
   static const formCreateListBoxField = 'FormCreateListBoxField';
 
-  /// iOS only.
+  // iOS only.
   static const pencilKitDrawing = 'PencilKitDrawing';
 
-  /// Android only.
+  // Android only.
   static const annotationSmartPen = 'AnnotationSmartPen';
-
-  /// Android only.
   static const annotationLasso = 'AnnotationLasso';
 }
 
-/// Defines all fit modes in the viewer.
+// FitModes define all fit modes in the viewer
 class FitModes {
   static const fitPage = 'FitPage';
   static const fitWidth = 'FitWidth';
@@ -231,7 +229,7 @@ class FitModes {
   static const zoom = 'Zoom';
 }
 
-/// Defines all layout modes in the viewer.
+// LayoutModes define all layout modes in the viewer
 class LayoutModes {
   static const single = 'Single';
   static const continuous = 'Continuous';
@@ -241,19 +239,19 @@ class LayoutModes {
   static const facingCoverContinuous = 'FacingCoverContinuous';
 }
 
-/// Defines the property flags for a form field.
+// FieldFlags define the property flags for a form field
 class FieldFlags {
   static const ReadOnly = 0;
   static const Required = 1;
 }
 
-/// Defines the filter modes in thumbnail browser.
+// ThumbnailFilterModes define the filter modes in thumbnail browser
 class ThumbnailFilterModes {
   static const annotated = "annotated";
   static const bookmarked = "bookmarked";
 }
 
-/// Defines the flags for any annotation in the document.
+// AnnotationFlags define the flags for any annotation in the document
 class AnnotationFlags {
   static const hidden = "hidden";
   static const invisible = "invisible";
@@ -267,33 +265,24 @@ class AnnotationFlags {
   static const toggleNoView = "toggleNoView";
 }
 
-/// Defines all possible annotation properties.
+// AnnotationProperties define all possible annotation properties
 class AnnotationProperties {
-  /// Not markup exclusive.
+  // not markup exclusive
   static const rect = "rect";
-
-  /// Not markup exclusive.
   static const contents = "contents";
-
-  /// Not markup exclusive.
-  static const rotation = "rotation";
-
-  /// Markup exclusive.
+  // markup exclusive
   static const subject = "subject";
-
-  /// Markup exclusive.
   static const title = "title";
-
-  /// Markup exclusive.
   static const contentRect = "contentRect";
+  static const rotation = "rotation";
 }
 
-/// Defines all user behaviors in the viewer.
+// Behaviors define all user behaviors in the viewer
 class Behaviors {
   static const linkPress = "linkPress";
 }
 
-/// Defines all menu items that could show up on long press of text or empty area.
+// LongPressMenuItems define all menu items that could show up on long press of text or empty area
 class LongPressMenuItems {
   static const copy = "copy";
   static const search = "search";
@@ -301,7 +290,7 @@ class LongPressMenuItems {
   static const read = "read";
 }
 
-/// Defines all menu items that could show up on press of annotation.
+// AnnotationMenuItems define all menu items that could show up on press of annotation
 class AnnotationMenuItems {
   static const style = "style";
   static const note = "note";
@@ -322,7 +311,7 @@ class AnnotationMenuItems {
   static const ungroup = "ungroup";
 }
 
-/// Defines a set of pre-designed toolbars for easier customization.
+// DefaultToolbars define a set of pre-designed toolbars for easier customization
 class DefaultToolbars {
   static const view = "PDFTron_View";
   static const annotate = "PDFTron_Annotate";
@@ -336,7 +325,7 @@ class DefaultToolbars {
   static const favorite = "PDFTron_Favorite";
 }
 
-/// Defines default toolbar icons for use for potential custom toolbars.
+// ToolbarIcons define default toolbar icons for use for potential custom toolbars
 class ToolbarIcons {
   static const view = "PDFTron_View";
   static const annotate = "PDFTron_Annotate";
@@ -350,16 +339,13 @@ class ToolbarIcons {
   static const favorite = "PDFTron_Favorite";
 }
 
-/// Defines the export format for pdf image
 class ExportFormat {
   static const BMP = "BMP";
   static const JPEG = "JPEG";
   static const PNG = "PNG";
 }
 
-/// Defines the screen orientations for the viewer.
-///
-/// Android only.
+// PTOrientation defines the screen orientations for the viewer. Android only.
 class PTOrientation {
   static const unspecified = -1;
   static const landscape = 0;
@@ -368,29 +354,24 @@ class PTOrientation {
   static const sensorPortrait = 7;
   static const reverseLandscape = 8;
   static const reversePortrait = 9;
-
-  /// Only changes direction if user has enabled sensor-based rotation.
-  static const userLandscape = 11;
-
-  /// Only changes direction if user has enabled sensor-based rotation.
-  static const userPortrait = 12;
+  static const userLandscape =
+      11; // Only changes direction if user has enabled sensor-based rotation.
+  static const userPortrait =
+      12; // Only changes direction if user has enabled sensor-based rotation.
 }
 
-/// Defines the items in the view mode dialog.
+// ViewModePickerItem defines the items in the view mode dialog.
 class ViewModePickerItem {
   static const Crop = "viewModeCrop";
   static const Rotation = "viewModeRotation";
   static const ColorMode = "viewModeColorMode";
-  static const VerticalScrolling = "viewModeVerticalScrolling";
 }
 
-/// Defines the type of eraser used in the viewer.
+// DefaultEraserType defines the default behaviour of the eraser tool.
 class DefaultEraserType {
   static const annotationEraser = "annotationEraser";
-  static const hybrideEraser = "hybridEraser";
-
-  /// Android only.
-  static const inkEraser = "inkEraser";
+  static const hybrideEraser = "hybrideEraser";
+  static const inkEraser = "inkEraser"; // Android only
 }
 
 // ReflowOrientation defines the scrolling direction of the viewer while in reflow mode. Android only.
@@ -406,7 +387,7 @@ class AnnotationManagerEditMode {
 
 class AnnotationManagerUndoMode {
   static const Own = "undoModeOwn";
-  static const All = "undoModeAll";
+  static const All = "unodModeAll";
 }
 
 class ToolbarAlignment {

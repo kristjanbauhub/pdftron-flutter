@@ -381,11 +381,10 @@ static NSString * const PTBookmarkedFilterModeKey = @"bookmarked";
 static NSString * const PTViewModeCropKey = @"viewModeCrop";
 static NSString * const PTViewModeRotationKey = @"viewModeRotation";
 static NSString * const PTViewModeColorModeKey = @"viewModeColorMode";
-static NSString * const PTViewModeVerticalScrollingKey = @"viewModeVerticalScrolling";
 
 // DefaultEraserType keys
 static NSString * const PTInkEraserModeAllKey = @"annotationEraser";
-static NSString *const PTInkEraserModePointsKey = @"hybridEraser";
+static NSString * const PTInkEraserModePointsKey = @"hybrideEraser";
 
 // ReflowOrientation
 static NSString * const PTReflowOrientationHorizontalKey = @"horizontal";
