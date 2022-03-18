@@ -3654,15 +3654,13 @@
         PTRotate pageRotation = [page GetRotation];
         PTRotate viewRotation = ((pageRotation + ctrlRotation) % 4);
 
-        PTPDFRect* pageCropBox = [page GetCropBox];
-
-        if ([pageCropBox Width] < maxWidth)
+        if ([page GetPageWidth:(e_ptcrop)] < maxWidth)
         {
-            maxWidth = [pageCropBox Width];
+            maxWidth = [page GetPageWidth:(e_ptcrop)];
         }
-        if ([pageCropBox Height] < maxHeight)
+        if ([page GetPageHeight:(e_ptcrop)] < maxHeight)
         {
-            maxHeight = [pageCropBox Height];
+            maxHeight = [page GetPageHeight:(e_ptcrop)];
         }
 
         if (viewRotation == e_pt90 || viewRotation == e_pt270) {
@@ -3694,7 +3692,7 @@
         CGFloat xPos = [self.touchPtPage getX] - (stampWidth / 2);
         CGFloat yPos = [self.touchPtPage getY] - (stampHeight / 2);
 
-        double pageWidth = [[page GetCropBox] Width];
+        double pageWidth = [page GetPageWidth:(e_ptcrop)];
         if (xPos > pageWidth - stampWidth)
         {
             xPos = pageWidth - stampWidth;
@@ -3703,7 +3701,7 @@
         {
             xPos = 0;
         }
-        double pageHeight = [[page GetCropBox] Height];
+        double pageHeight = [page GetPageHeight:(e_ptcrop)];
         if (yPos > pageHeight - stampHeight)
         {
             yPos = pageHeight - stampHeight;
@@ -3727,6 +3725,10 @@
 
         // Rotate stamp based on the pdfViewCtrl's rotation
         PTRotate stampRotation = (4 - ctrlRotation) % 4; // 0 = 0, 90 = 1; 180 = 2, and 270 = 3
+        if ([page GetPageWidth:(e_ptcrop)] == [[page GetCropBox] Height] && [page GetPageHeight:(e_ptcrop)] == [[page GetCropBox] Width]) {
+            stampRotation = (4 - ctrlRotation - 1) % 4;
+        }
+
         [stamper SetRotation:stampRotation * 90.0];
         [stamper StampImage:doc src_img:stampImage dest_pages:pageSet];
 
@@ -3862,15 +3864,13 @@
         PTRotate pageRotation = [page GetRotation];
         PTRotate viewRotation = ((pageRotation + ctrlRotation) % 4);
 
-        PTPDFRect* pageCropBox = [page GetCropBox];
-
-        if ([pageCropBox Width] < maxWidth)
+        if ([page GetPageWidth:(e_ptcrop)] < maxWidth)
         {
-            maxWidth = [pageCropBox Width];
+            maxWidth = [page GetPageWidth:(e_ptcrop)];
         }
-        if ([pageCropBox Height] < maxHeight)
+        if ([page GetPageHeight:(e_ptcrop)] < maxHeight)
         {
-            maxHeight = [pageCropBox Height];
+            maxHeight = [page GetPageHeight:(e_ptcrop)];
         }
 
         if (viewRotation == e_pt90 || viewRotation == e_pt270) {
@@ -3902,7 +3902,7 @@
         CGFloat xPos = [self.touchPtPage getX] - (stampWidth / 2);
         CGFloat yPos = [self.touchPtPage getY] - (stampHeight / 2);
 
-        double pageWidth = [[page GetCropBox] Width];
+        double pageWidth = [page GetPageWidth:(e_ptcrop)];
         if (xPos > pageWidth - stampWidth)
         {
             xPos = pageWidth - stampWidth;
@@ -3911,7 +3911,7 @@
         {
             xPos = 0;
         }
-        double pageHeight = [[page GetCropBox] Height];
+        double pageHeight = [page GetPageHeight:(e_ptcrop)];
         if (yPos > pageHeight - stampHeight)
         {
             yPos = pageHeight - stampHeight;
