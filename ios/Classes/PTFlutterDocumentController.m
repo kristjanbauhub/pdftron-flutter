@@ -111,6 +111,8 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
     self.needsRemoteDocumentLoaded = NO;
 
     [super openDocumentWithURL:url password:password];
+    
+    [self applyLayoutMode];
 }
 
 - (void)openDocumentWithPDFDoc:(PTPDFDoc *)document
@@ -121,6 +123,8 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
     self.needsRemoteDocumentLoaded = NO;
 
     [super openDocumentWithPDFDoc:document];
+    
+    [self applyLayoutMode];
 }
 
 - (BOOL)isTopToolbarEnabled
@@ -210,6 +214,8 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
             self.settingsViewController.pageRotationHidden = value;
         } else if ([viewModeItemString isEqualToString:PTViewModeCropKey]) {
             self.settingsViewController.cropPagesHidden = value;
+        } else if ([viewModeItemString isEqualToString:PTViewModeVerticalScrollingKey]) {
+            self.settingsViewController.viewModeContinuousHidden = value;
         }
     }
 }
@@ -1453,7 +1459,7 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
         PTAnnotationToolbarAnnotate: toolGroupManager.annotateItemGroup,
         PTAnnotationToolbarDraw: toolGroupManager.drawItemGroup,
         PTAnnotationToolbarInsert: toolGroupManager.insertItemGroup,
-        //PTAnnotationToolbarFillAndSign: [NSNull null], // not implemented
+        PTAnnotationToolbarFillAndSign: toolGroupManager.fillAndSignItemGroup, 
         PTAnnotationToolbarPrepareForm: toolGroupManager.prepareFormItemGroup,
         PTAnnotationToolbarMeasure: toolGroupManager.measureItemGroup,
         PTAnnotationToolbarRedaction: toolGroupManager.redactItemGroup,
