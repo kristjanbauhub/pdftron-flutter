@@ -14,14 +14,17 @@ class DocumentView extends StatefulWidget {
 class _DocumentViewState extends State<DocumentView> {
   @override
   Widget build(BuildContext context) {
-    final String viewType = 'pdftron_flutter/documentview';
+  final String viewType = 'pdftron_flutter/documentview';
 
     if (Platform.isAndroid) {
       return PlatformViewLink(
           viewType: viewType,
           surfaceFactory: (BuildContext context, PlatformViewController controller) {
-            return AndroidViewSurface(controller: controller as AndroidViewController, hitTestBehavior: PlatformViewHitTestBehavior.opaque, gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>[].toSet());
-          },
+            return AndroidViewSurface(
+              controller: controller as AndroidViewController, 
+              hitTestBehavior: PlatformViewHitTestBehavior.opaque, 
+              gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>[].toSet());
+          }, 
           onCreatePlatformView: (PlatformViewCreationParams params) {
             return PlatformViewsService.initSurfaceAndroidView(
               id: params.id,
@@ -50,12 +53,14 @@ class _DocumentViewState extends State<DocumentView> {
 }
 
 class DocumentViewController {
-  DocumentViewController._(int id) : _channel = new MethodChannel('pdftron_flutter/documentview_$id');
+  DocumentViewController._(int id)
+      : _channel = new MethodChannel('pdftron_flutter/documentview_$id');
 
   final MethodChannel _channel;
 
   Future<Rect> setCustomDataForAnnotation(Annot annotation, List<String> fieldNames) async {
-    return _channel.invokeMethod(Functions.setCustomDataForAnnotation, <String, dynamic>{Parameters.annotation: jsonEncode(annotation), Parameters.fieldNames: fieldNames});
+    return _channel.invokeMethod(Functions.setCustomDataForAnnotation,
+        <String, dynamic>{Parameters.annotation: jsonEncode(annotation), Parameters.fieldNames: fieldNames});
   }
 
   Future<bool> isBauhubToolMode() async {
@@ -65,79 +70,109 @@ class DocumentViewController {
   }
 
   Future<void> openDocument(String document, {String password, Config config}) {
-    return _channel.invokeMethod(Functions.openDocument, <String, dynamic>{Parameters.document: document, Parameters.password: password, Parameters.config: jsonEncode(config)});
+    return _channel.invokeMethod(Functions.openDocument, <String, dynamic>{
+      Parameters.document: document,
+      Parameters.password: password,
+      Parameters.config: jsonEncode(config)
+    });
   }
 
   Future<void> importAnnotations(String xfdf) {
-    return _channel.invokeMethod(Functions.importAnnotations, <String, dynamic>{Parameters.xfdf: xfdf});
+    return _channel.invokeMethod(
+        Functions.importAnnotations, <String, dynamic>{Parameters.xfdf: xfdf});
   }
 
   Future<String> exportAnnotations(List<Annot> annotationList) async {
     if (annotationList == null) {
       return _channel.invokeMethod(Functions.exportAnnotations);
     } else {
-      return _channel.invokeMethod(Functions.exportAnnotations, <String, dynamic>{Parameters.annotations: jsonEncode(annotationList)});
+      return _channel.invokeMethod(
+          Functions.exportAnnotations, <String, dynamic>{
+        Parameters.annotations: jsonEncode(annotationList)
+      });
     }
   }
 
   Future<void> flattenAnnotations(bool formsOnly) {
-    return _channel.invokeMethod(Functions.flattenAnnotations, <String, dynamic>{Parameters.formsOnly: formsOnly});
+    return _channel.invokeMethod(Functions.flattenAnnotations,
+        <String, dynamic>{Parameters.formsOnly: formsOnly});
   }
 
   Future<void> deleteAnnotations(List<Annot> annotationList) {
-    return _channel.invokeMethod(Functions.deleteAnnotations, <String, dynamic>{Parameters.annotations: jsonEncode(annotationList)});
+    return _channel.invokeMethod(Functions.deleteAnnotations,
+        <String, dynamic>{Parameters.annotations: jsonEncode(annotationList)});
   }
 
   Future<void> selectAnnotation(Annot annotation) {
-    return _channel.invokeMethod(Functions.selectAnnotation, <String, dynamic>{Parameters.annotation: jsonEncode(annotation)});
+    return _channel.invokeMethod(Functions.selectAnnotation,
+        <String, dynamic>{Parameters.annotation: jsonEncode(annotation)});
   }
 
   Future<bool> hideAnnotation(Annot annotation) {
-    return _channel.invokeMethod(Functions.hideAnnotation, <String, dynamic>{Parameters.annotation: jsonEncode(annotation)});
+    return _channel.invokeMethod(Functions.hideAnnotation,
+        <String, dynamic>{Parameters.annotation: jsonEncode(annotation)});
   }
 
   Future<bool> hideAllAnnotations(int pageNumber) {
-    return _channel.invokeMethod(Functions.hideAllAnnotations, <String, dynamic>{Parameters.pageNumber: pageNumber});
+    return _channel.invokeMethod(Functions.hideAllAnnotations,
+        <String, dynamic>{Parameters.pageNumber: pageNumber});
   }
 
   Future<bool> showAnnotation(Annot annotation) {
-    return _channel.invokeMethod(Functions.showAnnotation, <String, dynamic>{Parameters.annotation: jsonEncode(annotation)});
+    return _channel.invokeMethod(Functions.showAnnotation,
+        <String, dynamic>{Parameters.annotation: jsonEncode(annotation)});
   }
 
-  Future<void> setFlagsForAnnotations(List<AnnotWithFlag> annotationWithFlagsList) {
-    return _channel.invokeMethod(Functions.setFlagsForAnnotations, <String, dynamic>{Parameters.annotationsWithFlags: jsonEncode(annotationWithFlagsList)});
+  Future<void> setFlagsForAnnotations(
+      List<AnnotWithFlag> annotationWithFlagsList) {
+    return _channel.invokeMethod(
+        Functions.setFlagsForAnnotations, <String, dynamic>{
+      Parameters.annotationsWithFlags: jsonEncode(annotationWithFlagsList)
+    });
   }
 
-  Future<void> setPropertiesForAnnotation(Annot annotation, AnnotProperty property) {
-    return _channel.invokeMethod(Functions.setPropertiesForAnnotation, <String, dynamic>{
+  Future<void> setPropertiesForAnnotation(
+      Annot annotation, AnnotProperty property) {
+    return _channel
+        .invokeMethod(Functions.setPropertiesForAnnotation, <String, dynamic>{
       Parameters.annotation: jsonEncode(annotation),
       Parameters.annotationProperties: jsonEncode(property),
     });
   }
 
-  Future<void> groupAnnotations(Annot primaryAnnotation, List<Annot> subAnnotations) {
-    return _channel.invokeMethod(Functions.groupAnnotations, <String, dynamic>{
+  Future<void> groupAnnotations(
+      Annot primaryAnnotation, List<Annot> subAnnotations) {
+    return _channel
+        .invokeMethod(Functions.groupAnnotations, <String, dynamic>{
       Parameters.annotation: jsonEncode(primaryAnnotation),
       Parameters.annotations: jsonEncode(subAnnotations),
     });
   }
 
-  Future<void> ungroupAnnotations(List<Annot> annotations) {
-    return _channel.invokeMethod(Functions.ungroupAnnotations, <String, dynamic>{
+  Future<void> ungroupAnnotations(
+      List<Annot> annotations) {
+    return _channel
+        .invokeMethod(Functions.ungroupAnnotations, <String, dynamic>{
       Parameters.annotations: jsonEncode(annotations),
     });
   }
 
   Future<void> importAnnotationCommand(String xfdfCommand) {
-    return _channel.invokeMethod(Functions.importAnnotationCommand, <String, dynamic>{Parameters.xfdfCommand: xfdfCommand});
+    return _channel.invokeMethod(Functions.importAnnotationCommand,
+        <String, dynamic>{Parameters.xfdfCommand: xfdfCommand});
   }
 
   Future<void> importBookmarkJson(String bookmarkJson) {
-    return _channel.invokeMethod(Functions.importBookmarkJson, <String, dynamic>{Parameters.bookmarkJson: bookmarkJson});
+    return _channel.invokeMethod(Functions.importBookmarkJson,
+        <String, dynamic>{Parameters.bookmarkJson: bookmarkJson});
   }
 
   Future<void> addBookmark(String title, int pageNumber) {
-    return _channel.invokeMethod(Functions.addBookmark, <String, dynamic>{Parameters.title: title, Parameters.pageNumber: pageNumber});
+    return _channel
+        .invokeMethod(Functions.addBookmark, <String, dynamic>{
+      Parameters.title: title,
+      Parameters.pageNumber: pageNumber
+    });
   }
 
   Future<String> saveDocument() {
@@ -159,7 +194,7 @@ class DocumentViewController {
   Future<void> undo() {
     return _channel.invokeMethod(Functions.undo);
   }
-
+  
   Future<void> redo() {
     return _channel.invokeMethod(Functions.redo);
   }
@@ -167,18 +202,20 @@ class DocumentViewController {
   Future<bool> canUndo() {
     return _channel.invokeMethod(Functions.canUndo);
   }
-
+  
   Future<bool> canRedo() {
     return _channel.invokeMethod(Functions.canRedo);
   }
 
   Future<Rect> getPageCropBox(int pageNumber) async {
-    String cropBoxString = await _channel.invokeMethod(Functions.getPageCropBox, <String, dynamic>{Parameters.pageNumber: pageNumber});
+    String cropBoxString = await _channel.invokeMethod(Functions.getPageCropBox,
+        <String, dynamic>{Parameters.pageNumber: pageNumber});
     return Rect.fromJson(jsonDecode(cropBoxString));
   }
 
   Future<int> getPageRotation(int pageNumber) async {
-    int pageRotation = await _channel.invokeMethod(Functions.getPageRotation, <String, dynamic>{Parameters.pageNumber: pageNumber});
+    int pageRotation = await _channel.invokeMethod(Functions.getPageRotation,
+        <String, dynamic>{Parameters.pageNumber: pageNumber});
     return pageRotation;
   }
 
@@ -191,7 +228,8 @@ class DocumentViewController {
   }
 
   Future<bool> setCurrentPage(int pageNumber) {
-    return _channel.invokeMethod(Functions.setCurrentPage, <String, dynamic>{Parameters.pageNumber: pageNumber});
+    return _channel.invokeMethod(Functions.setCurrentPage,
+        <String, dynamic>{Parameters.pageNumber: pageNumber});
   }
 
   Future<String> getDocumentPath() {
@@ -199,19 +237,27 @@ class DocumentViewController {
   }
 
   Future<void> setToolMode(String toolMode) {
-    return _channel.invokeMethod(Functions.setToolMode, <String, dynamic>{Parameters.toolMode: toolMode});
+    return _channel.invokeMethod(Functions.setToolMode,
+        <String, dynamic>{Parameters.toolMode: toolMode});
   }
 
-  Future<void> setFlagForFields(List<String> fieldNames, int flag, bool flagValue) {
-    return _channel.invokeMethod(Functions.setFlagForFields, <String, dynamic>{Parameters.fieldNames: fieldNames, Parameters.flag: flag, Parameters.flagValue: flagValue});
+  Future<void> setFlagForFields(
+      List<String> fieldNames, int flag, bool flagValue) {
+    return _channel.invokeMethod(Functions.setFlagForFields, <String, dynamic>{
+      Parameters.fieldNames: fieldNames,
+      Parameters.flag: flag,
+      Parameters.flagValue: flagValue
+    });
   }
 
   Future<void> setValuesForFields(List<Field> fields) {
-    return _channel.invokeMethod(Functions.setValuesForFields, <String, dynamic>{Parameters.fields: jsonEncode(fields)});
+    return _channel.invokeMethod(Functions.setValuesForFields,
+        <String, dynamic>{Parameters.fields: jsonEncode(fields)});
   }
 
   Future<void> setLeadingNavButtonIcon(String path) {
-    return _channel.invokeMethod(Functions.setLeadingNavButtonIcon, <String, dynamic>{Parameters.leadingNavButtonIcon: path});
+    return _channel.invokeMethod(Functions.setLeadingNavButtonIcon,
+        <String, dynamic>{Parameters.leadingNavButtonIcon: path});
   }
 
   Future<void> closeAllTabs() {
@@ -223,7 +269,11 @@ class DocumentViewController {
   }
 
   Future<String> exportAsImage(int pageNumber, int dpi, String exportFormat) {
-    return _channel.invokeMethod(Functions.exportAsImage, <String, dynamic>{Parameters.pageNumber: pageNumber, Parameters.dpi: dpi, Parameters.exportFormat: exportFormat});
+    return _channel.invokeMethod(Functions.exportAsImage, <String, dynamic>{
+      Parameters.pageNumber: pageNumber,
+      Parameters.dpi: dpi,
+      Parameters.exportFormat: exportFormat
+    });
   }
 
   Future<void> openAnnotationList() {
@@ -245,17 +295,19 @@ class DocumentViewController {
   Future<void> openThumbnailsView() {
     return _channel.invokeMethod(Functions.openThumbnailsView);
   }
-
+  
   Future<void> openRotateDialog() {
     return _channel.invokeMethod(Functions.openRotateDialog);
   }
 
   Future<void> openAddPagesView(Map<String, double> sourceRect) {
-    return _channel.invokeMethod(Functions.openAddPagesView, <String, dynamic>{Parameters.sourceRect: sourceRect});
+    return _channel.invokeMethod(Functions.openAddPagesView,
+        <String, dynamic>{Parameters.sourceRect: sourceRect});
   }
 
   Future<void> openViewSettings(Map<String, double> sourceRect) {
-    return _channel.invokeMethod(Functions.openViewSettings, <String, dynamic>{Parameters.sourceRect: sourceRect});
+    return _channel.invokeMethod(Functions.openViewSettings,
+        <String, dynamic>{Parameters.sourceRect: sourceRect});
   }
 
   Future<void> openCrop() {
@@ -273,7 +325,7 @@ class DocumentViewController {
   Future<void> openTabSwitcher() {
     return _channel.invokeMethod(Functions.openTabSwitcher);
   }
-
+  
   Future<void> openGoToPageView() {
     return _channel.invokeMethod(Functions.openGoToPageView);
   }
