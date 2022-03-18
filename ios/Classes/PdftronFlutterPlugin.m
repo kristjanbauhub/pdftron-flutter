@@ -3724,7 +3724,6 @@
         PTImage* stampImage = [PTImage CreateWithDataSimple:[doc GetSDFDoc] buf:data buf_size:data.length encoder_hints:encoderHints];
 
         // Rotate stamp based on the pdfViewCtrl's rotation
-
         PTRotate stampRotation = (4 - ctrlRotation) % 4; // 0 = 0, 90 = 1; 180 = 2, and 270 = 3
         if ([page GetPageWidth:(e_ptcrop)] == [[page GetCropBox] Height] && [page GetPageHeight:(e_ptcrop)] == [[page GetCropBox] Width]) {
             stampRotation = (4 - ctrlRotation - 1) % 4;
