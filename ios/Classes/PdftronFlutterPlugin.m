@@ -3854,7 +3854,7 @@
         hasWriteLock = YES;
 
         PTPDFDoc *doc = [self.pdfViewCtrl GetDoc];
-
+        
         PTPage* page = [doc GetPage:self.pageNumber];
         PTPDFRect* stampRect = [[PTPDFRect alloc] initWithX1:0 y1:0 x2:self.image.size.width y2:self.image.size.height];
         double maxWidth = 25.0;
