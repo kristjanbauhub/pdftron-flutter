@@ -3835,7 +3835,7 @@
     self.touchPtPage = [self.pdfViewCtrl ConvScreenPtToPagePt:[[PTPDFPoint alloc] initWithPx:self.endPoint.x py:self.endPoint.y] page_num:_pageNumber];
 
     UIImage *rawImage = [UIImage imageNamed:@"bauhubPlusIconTool"];
-
+    
     if (rawImage) {
         self.image = [self correctForRotation:rawImage];
         [self createImageStamp];
