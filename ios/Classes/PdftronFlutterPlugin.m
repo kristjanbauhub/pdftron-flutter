@@ -3840,7 +3840,7 @@
         self.image = [self correctForRotation:rawImage];
         [self createImageStamp];
     }
-
+    
     // Tap handled.
     return YES;
 }
