@@ -114,8 +114,8 @@ public class BauhubTaskTool extends Stamper {
                 double pixelsToPageRatio = Math.abs(point1[0] - point2[0]) / 20.0D;
                 double maxImageHeightPage = maxImageHeightPixels * pixelsToPageRatio;
                 double maxImageWidthPage = maxImageWidthPixels * pixelsToPageRatio;
-                double stampWidth = (double)img.getImageWidth();
-                double stampHeight = (double)img.getImageHeight();
+                double stampWidth = 25.0D;
+                double stampHeight = 25.0D;
                 double pageWidth;
                 if (imageRotation == 90 || imageRotation == 270) {
                     pageWidth = stampWidth;
