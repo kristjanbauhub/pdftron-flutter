@@ -112,8 +112,8 @@ public class BauhubTaskTool extends Stamper {
                 double[] point1 = this.mPdfViewCtrl.convScreenPtToPagePt(0.0D, 0.0D, pageNum);
                 double[] point2 = this.mPdfViewCtrl.convScreenPtToPagePt(20.0D, 20.0D, pageNum);
                 double pixelsToPageRatio = Math.abs(point1[0] - point2[0]) / 20.0D;
-                double maxImageHeightPage = maxImageHeightPixels * pixelsToPageRatio;
-                double maxImageWidthPage = maxImageWidthPixels * pixelsToPageRatio;
+                double maxImageHeightPage = 25.0D;
+                double maxImageWidthPage = 25.0D;
                 double stampWidth = (double)img.getImageWidth();
                 double stampHeight = (double)img.getImageHeight();
                 double pageWidth;
