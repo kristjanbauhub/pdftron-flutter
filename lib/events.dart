@@ -4,6 +4,7 @@
 /// native implementations.
 part of pdftron;
 
+const _willHideEditMenuChannel = const EventChannel('will_hide_edit_menu_event');
 const _exportAnnotationCommandChannel =
 const EventChannel('export_annotation_command_event');
 const _exportBookmarkChannel = const EventChannel('export_bookmark_event');
@@ -27,6 +28,7 @@ const _pageChangedChannel = const EventChannel('page_changed_event');
 const _zoomChangedChannel = const EventChannel('zoom_changed_event');
 const _pageMovedChannel = const EventChannel('page_moved_event');
 
+typedef void WillHideEditMenuListener();
 typedef void ExportAnnotationCommandListener(dynamic xfdfCommand);
 typedef void ExportBookmarkListener(dynamic bookmarkJson);
 typedef void DocumentLoadedListener(dynamic filePath);
@@ -61,8 +63,22 @@ enum eventSinkId {
   leadingNavButtonPressedId,
   pageChangedId,
   zoomChangedId,
+  willHideEditMenuId,
   pageMovedId,
 }
+
+CancelListener startWillHideEditMenuListener(WillHideEditMenuListener listener) {
+  var subscription = _willHideEditMenuChannel
+      .receiveBroadcastStream(eventSinkId.willHideEditMenuId.index)
+      .listen((stub) {
+    listener();
+  }, cancelOnError: true);
+
+  return () {
+    subscription.cancel();
+  };
+}
+
 
 /// Listens for when a local annotation changes have been committed to the document.
 ///
