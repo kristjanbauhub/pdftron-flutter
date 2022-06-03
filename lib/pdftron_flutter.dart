@@ -36,7 +36,7 @@ class PdftronFlutter {
   }
 
   static Future<void> openDocument(String document,
-      {String password, Config config}) {
+      {String? password, Config? config}) {
     return _channel.invokeMethod(Functions.openDocument, <String, dynamic>{
       Parameters.document: document,
       Parameters.password: password,
@@ -49,7 +49,7 @@ class PdftronFlutter {
         Functions.importAnnotations, <String, dynamic>{Parameters.xfdf: xfdf});
   }
 
-  static Future<String> exportAnnotations(List<Annot> annotationList) async {
+  static Future<String?> exportAnnotations(List<Annot> annotationList) async {
     if (annotationList == null) {
       return _channel.invokeMethod(Functions.exportAnnotations);
     } else {
@@ -125,19 +125,19 @@ class PdftronFlutter {
     });
   }
 
-  static Future<String> saveDocument() {
+  static Future<String?> saveDocument() {
     return _channel.invokeMethod(Functions.saveDocument);
   }
 
-  static Future<bool> commitTool() {
+  static Future<bool?> commitTool() {
     return _channel.invokeMethod(Functions.commitTool);
   }
 
-  static Future<int> getPageCount() {
+  static Future<int?> getPageCount() {
     return _channel.invokeMethod(Functions.getPageCount);
   }
 
-  static Future<bool> handleBackButton() {
+  static Future<bool?> handleBackButton() {
     return _channel.invokeMethod(Functions.handleBackButton);
   }
 
@@ -149,11 +149,11 @@ class PdftronFlutter {
     return _channel.invokeMethod(Functions.redo);
   }
 
-  static Future<bool> canUndo() {
+  static Future<bool?> canUndo() {
     return _channel.invokeMethod(Functions.canUndo);
   }
   
-  static Future<bool> canRedo() {
+  static Future<bool?> canRedo() {
     return _channel.invokeMethod(Functions.canRedo);
   }
 
@@ -177,12 +177,12 @@ class PdftronFlutter {
     return _channel.invokeMethod(Functions.rotateCounterClockwise);
   }
 
-  static Future<bool> setCurrentPage(int pageNumber) {
+  static Future<bool?> setCurrentPage(int pageNumber) {
     return _channel.invokeMethod(Functions.setCurrentPage,
         <String, dynamic>{Parameters.pageNumber: pageNumber});
   }
 
-  static Future<String> getDocumentPath() {
+  static Future<String?> getDocumentPath() {
     return _channel.invokeMethod(Functions.getDocumentPath);
   }
 
@@ -218,7 +218,7 @@ class PdftronFlutter {
     return _channel.invokeMethod(Functions.deleteAllAnnotations);
   }
 
-  static Future<String> exportAsImage(int pageNumber, int dpi, String exportFormat) {
+  static Future<String?> exportAsImage(int pageNumber, int dpi, String exportFormat) {
     return _channel.invokeMethod(Functions.exportAsImage, <String, dynamic>{
       Parameters.pageNumber: pageNumber,
       Parameters.dpi: dpi,
@@ -303,23 +303,23 @@ class PdftronFlutter {
         <String, dynamic>{Parameters.requestedOrientation: requestedOrientation});
   }
 
-  static Future<bool> gotoPreviousPage() {
+  static Future<bool?> gotoPreviousPage() {
     return _channel.invokeMethod(Functions.gotoPreviousPage);
   }
 
-  static Future<bool> gotoNextPage() {
+  static Future<bool?> gotoNextPage() {
     return _channel.invokeMethod(Functions.gotoNextPage);
   }
 
-  static Future<bool> gotoFirstPage() {
+  static Future<bool?> gotoFirstPage() {
     return _channel.invokeMethod(Functions.gotoFirstPage);
   }
 
-  static Future<bool> gotoLastPage() {
+  static Future<bool?> gotoLastPage() {
     return _channel.invokeMethod(Functions.gotoLastPage);
   }
 
-  static Future<int> getCurrentPage() {
+  static Future<int?> getCurrentPage() {
     return _channel.invokeMethod(Functions.getCurrentPage);
   }
 

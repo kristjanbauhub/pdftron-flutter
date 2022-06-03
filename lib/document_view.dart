@@ -3,7 +3,7 @@ part of pdftron;
 typedef void DocumentViewCreatedCallback(DocumentViewController controller);
 
 class DocumentView extends StatefulWidget {
-  const DocumentView({Key key, this.onCreated}) : super(key: key);
+  const DocumentView({Key? key, required this.onCreated}) : super(key: key);
 
   final DocumentViewCreatedCallback onCreated;
 
@@ -55,7 +55,7 @@ class DocumentViewController {
 
   final MethodChannel _channel;
 
-  Future<Rect> setCustomDataForAnnotation(Annot annotation, List<String> fieldNames) async {
+  Future<Rect?> setCustomDataForAnnotation(Annot annotation, List<String> fieldNames) async {
     return _channel.invokeMethod(Functions.setCustomDataForAnnotation,
         <String, dynamic>{Parameters.annotation: jsonEncode(annotation), Parameters.fieldNames: fieldNames});
   }
@@ -66,7 +66,7 @@ class DocumentViewController {
     return result == 'true';
   }
 
-  Future<void> openDocument(String document, {String password, Config config}) {
+  Future<void> openDocument(String document, {String? password, Config? config}) {
     return _channel.invokeMethod(Functions.openDocument, <String, dynamic>{
       Parameters.document: document,
       Parameters.password: password,
@@ -79,7 +79,7 @@ class DocumentViewController {
         Functions.importAnnotations, <String, dynamic>{Parameters.xfdf: xfdf});
   }
 
-  Future<String> exportAnnotations(List<Annot> annotationList) async {
+  Future<String?> exportAnnotations(List<Annot> annotationList) async {
     if (annotationList == null) {
       return _channel.invokeMethod(Functions.exportAnnotations);
     } else {
@@ -105,17 +105,17 @@ class DocumentViewController {
         <String, dynamic>{Parameters.annotation: jsonEncode(annotation)});
   }
 
-  Future<bool> hideAnnotation(Annot annotation) {
+  Future<bool?> hideAnnotation(Annot annotation) {
     return _channel.invokeMethod(Functions.hideAnnotation,
         <String, dynamic>{Parameters.annotation: jsonEncode(annotation)});
   }
 
-  Future<bool> hideAllAnnotations(int pageNumber) {
+  Future<bool?> hideAllAnnotations(int pageNumber) {
     return _channel.invokeMethod(Functions.hideAllAnnotations,
         <String, dynamic>{Parameters.pageNumber: pageNumber});
   }
 
-  Future<bool> showAnnotation(Annot annotation) {
+  Future<bool?> showAnnotation(Annot annotation) {
     return _channel.invokeMethod(Functions.showAnnotation,
         <String, dynamic>{Parameters.annotation: jsonEncode(annotation)});
   }
@@ -172,19 +172,19 @@ class DocumentViewController {
     });
   }
 
-  Future<String> saveDocument() {
+  Future<String?> saveDocument() {
     return _channel.invokeMethod(Functions.saveDocument);
   }
 
-  Future<bool> commitTool() {
+  Future<bool?> commitTool() {
     return _channel.invokeMethod(Functions.commitTool);
   }
 
-  Future<int> getPageCount() {
+  Future<int?> getPageCount() {
     return _channel.invokeMethod(Functions.getPageCount);
   }
 
-  Future<bool> handleBackButton() {
+  Future<bool?> handleBackButton() {
     return _channel.invokeMethod(Functions.handleBackButton);
   }
 
@@ -196,11 +196,11 @@ class DocumentViewController {
     return _channel.invokeMethod(Functions.redo);
   }
 
-  Future<bool> canUndo() {
+  Future<bool?> canUndo() {
     return _channel.invokeMethod(Functions.canUndo);
   }
   
-  Future<bool> canRedo() {
+  Future<bool?> canRedo() {
     return _channel.invokeMethod(Functions.canRedo);
   }
 
@@ -224,12 +224,12 @@ class DocumentViewController {
     return _channel.invokeMethod(Functions.rotateCounterClockwise);
   }
 
-  Future<bool> setCurrentPage(int pageNumber) {
+  Future<bool?> setCurrentPage(int pageNumber) {
     return _channel.invokeMethod(Functions.setCurrentPage,
         <String, dynamic>{Parameters.pageNumber: pageNumber});
   }
 
-  Future<String> getDocumentPath() {
+  Future<String?> getDocumentPath() {
     return _channel.invokeMethod(Functions.getDocumentPath);
   }
 
@@ -265,7 +265,7 @@ class DocumentViewController {
     return _channel.invokeMethod(Functions.deleteAllAnnotations);
   }
 
-  Future<String> exportAsImage(int pageNumber, int dpi, String exportFormat) {
+  Future<String?> exportAsImage(int pageNumber, int dpi, String exportFormat) {
     return _channel.invokeMethod(Functions.exportAsImage, <String, dynamic>{
       Parameters.pageNumber: pageNumber,
       Parameters.dpi: dpi,
@@ -347,23 +347,23 @@ class DocumentViewController {
     return _channel.invokeMethod(Functions.openNavigationLists);
   }
 
-  Future<bool> gotoPreviousPage() {
+  Future<bool?> gotoPreviousPage() {
     return _channel.invokeMethod(Functions.gotoPreviousPage);
   }
 
-  Future<bool> gotoNextPage() {
+  Future<bool?> gotoNextPage() {
     return _channel.invokeMethod(Functions.gotoNextPage);
   }
 
-  Future<bool> gotoFirstPage() {
+  Future<bool?> gotoFirstPage() {
     return _channel.invokeMethod(Functions.gotoFirstPage);
   }
 
-  Future<bool> gotoLastPage() {
+  Future<bool?> gotoLastPage() {
     return _channel.invokeMethod(Functions.gotoLastPage);
   }
 
-  Future<int> getCurrentPage() {
+  Future<int?> getCurrentPage() {
     return _channel.invokeMethod(Functions.getCurrentPage);
   }
 
