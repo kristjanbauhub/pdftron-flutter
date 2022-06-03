@@ -12,6 +12,11 @@ class Functions {
   static const getVersion = "getVersion";
   static const initialize = "initialize";
   static const openDocument = "openDocument";
+  static const getSavedSignatures = "getSavedSignatures";
+  static const getSavedSignatureFolder = "getSavedSignatureFolder";
+
+/// Android only
+  static const getSavedSignatureJpgFolder = "getSavedSignatureJpgFolder";
   static const importAnnotations = "importAnnotations";
   static const exportAnnotations = "exportAnnotations";
   static const flattenAnnotations = "flattenAnnotations";
@@ -66,6 +71,10 @@ class Functions {
   static const openGoToPageView = "openGoToPageView";
   static const openNavigationLists = "openNavigationLists";
   static const getCurrentPage = "getCurrentPage";
+  static const zoomWithCenter = "zoomWithCenter";
+  static const zoomToRect = "zoomToRect";
+  static const getZoom = "getZoom";
+  static const setZoomLimits = "setZoomLimits";
 }
 
 // Parameters define the parameters of the functions
@@ -157,12 +166,12 @@ class Buttons {
   static const undo = 'undo';
   static const redo = 'redo';
   static const showFileAttachmentButton = 'showFileAttachmentButton';
+  static const savePasswordCopyButton = 'savePasswordCopyButton';
 
   // Android only
   static const editAnnotationToolbarButton = 'editAnnotationToolButton';
   static const saveReducedCopyButton = 'saveReducedCopyButton';
   static const saveCroppedCopyButton = 'saveCroppedCopyButton';
-  static const savePasswordCopyButton = 'savePasswordCopyButton';
 }
 
 // Tools define the various kinds of tools for the viewer
@@ -325,7 +334,14 @@ class DefaultToolbars {
   static const favorite = "PDFTron_Favorite";
 }
 
-// ToolbarIcons define default toolbar icons for use for potential custom toolbars
+/// Defines zoom limits
+class ZoomLimitMode {
+  static const None = "none";
+  static const Absolute = "absolute";
+  static const Relative = "relative";
+}
+
+/// Defines default toolbar icons for use for potential custom toolbars.
 class ToolbarIcons {
   static const view = "PDFTron_View";
   static const annotate = "PDFTron_Annotate";
