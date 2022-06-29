@@ -79,7 +79,7 @@ class DocumentViewController {
         Functions.importAnnotations, <String, dynamic>{Parameters.xfdf: xfdf});
   }
 
-  Future<String?> exportAnnotations(List<Annot> annotationList) async {
+  Future<String?> exportAnnotations(List<Annot>? annotationList) async {
     if (annotationList == null) {
       return _channel.invokeMethod(Functions.exportAnnotations);
     } else {
