@@ -2,10 +2,14 @@ package com.pdftron.pdftronflutter.helpers;
 
 import android.content.ContentResolver;
 import android.content.Context;
+import android.graphics.Color;
 import android.net.Uri;
 import android.util.Base64;
 import android.util.Log;
+import android.util.SparseArray;
 import android.view.Gravity;
+import android.view.MenuItem;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
@@ -26,6 +30,7 @@ import com.pdftron.pdf.config.ToolManagerBuilder;
 import com.pdftron.pdf.config.ViewerConfig;
 import com.pdftron.pdf.controls.PdfViewCtrlTabBaseFragment;
 import com.pdftron.pdf.controls.PdfViewCtrlTabFragment2;
+import com.pdftron.pdf.controls.PdfViewCtrlTabHostBaseFragment;
 import com.pdftron.pdf.controls.PdfViewCtrlTabHostFragment2;
 import com.pdftron.pdf.controls.ReflowControl;
 import com.pdftron.pdf.controls.ThumbnailsViewFragment;
@@ -77,6 +82,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodCall;
@@ -114,6 +120,7 @@ public class PluginUtils {
     public static final String KEY_ZOOM_LIMIT_MODE_NONE = "none";
     public static final String KEY_ZOOM_LIMIT_MODE_ABSOLUTE = "absolute";
     public static final String KEY_ZOOM_LIMIT_MODE_RELATIVE = "relative";
+    public static final String KEY_ANIMATED = "animated";
 
     public static final String KEY_REQUESTED_ORIENTATION = "requestedOrientation";
 
@@ -144,8 +151,10 @@ public class PluginUtils {
     public static final String KEY_CONFIG_PAGE_CHANGE_ON_TAP = "pageChangeOnTap";
     public static final String KEY_CONFIG_SHOW_SAVED_SIGNATURES = "showSavedSignatures";
     public static final String KEY_CONFIG_SIGNATURE_PHOTO_PICKER_ENABLED = "signaturePhotoPickerEnabled";
+    public static final String KEY_CONFIG_SIGNATURE_TYPING_ENABLED = "signatureTypingEnabled";
     public static final String KEY_CONFIG_USE_STYLUS_AS_PEN = "useStylusAsPen";
     public static final String KEY_CONFIG_SIGN_SIGNATURE_FIELD_WITH_STAMPS = "signSignatureFieldWithStamps";
+    public static final String KEY_CONFIG_SIGNATURE_COLORS = "signatureColors";
     public static final String KEY_CONFIG_SELECT_ANNOTATION_AFTER_CREATION = "selectAnnotationAfterCreation";
     public static final String KEY_CONFIG_PAGE_INDICATOR_ENABLED = "pageIndicatorEnabled";
     public static final String KEY_CONFIG_SHOW_QUICK_NAVIGATION_BUTTON = "showQuickNavigationButton";
@@ -192,6 +201,7 @@ public class PluginUtils {
     public static final String KEY_CONFIG_ANNOTATION_MANAGER_EDIT_MODE = "annotationManagerEditMode";
     public static final String KEY_CONFIG_ANNOTATION_TOOLBAR_GRAVITY = "annotationToolbarAlignment";
     public static final String KEY_CONFIG_QUICK_BOOKMARK_CREATION = "quickBookmarkCreation";
+    public static final String KEY_CONFIG_FULL_SCREEN_MODE_ENABLED = "fullScreenModeEnabled";
 
     public static final String KEY_X1 = "x1";
     public static final String KEY_Y1 = "y1";
@@ -241,6 +251,10 @@ public class PluginUtils {
     public static final String KEY_GRAVITY_START = "GravityStart";
     public static final String KEY_GRAVITY_END = "GravityEnd";
 
+    public static final String KEY_SEARCH_STRING = "searchString";
+    public static final String KEY_MATCH_CASE = "matchCase";
+    public static final String KEY_MATCH_WHOLE_WORD = "matchWholeWord";
+
     public static final String EVENT_EXPORT_ANNOTATION_COMMAND = "export_annotation_command_event";
     public static final String EVENT_EXPORT_BOOKMARK = "export_bookmark_event";
     public static final String EVENT_DOCUMENT_LOADED = "document_loaded_event";
@@ -255,6 +269,8 @@ public class PluginUtils {
     public static final String EVENT_PAGE_CHANGED = "page_changed_event";
     public static final String EVENT_ZOOM_CHANGED = "zoom_changed_event";
     public static final String EVENT_PAGE_MOVED = "page_moved_event";
+    public static final String EVENT_ANNOTATION_TOOLBAR_ITEM_PRESSED = "annotation_toolbar_item_pressed_event";
+    public static final String EVENT_SCROLL_CHANGED = "scroll_changed_event";
 
     public static final String FUNCTION_SET_CUSTOM_DATA_FOR_ANNOTATION = "setCustomDataForAnnotation";
     public static final String FUNCTION_IS_BAUHUB_TOOL_MODE = "isBauhubToolMode";
@@ -319,13 +335,17 @@ public class PluginUtils {
     public static final String FUNCTION_GET_CURRENT_PAGE = "getCurrentPage";
     public static final String FUNCTION_GROUP_ANNOTATIONS = "groupAnnotations";
     public static final String FUNCTION_UNGROUP_ANNOTATIONS = "ungroupAnnotations";
+    public static final String FUNCTION_START_SEARCH_MODE = "startSearchMode";
+    public static final String FUNCTION_EXIT_SEARCH_MODE = "exitSearchMode";
     public static final String FUNCTION_ZOOM_WITH_CENTER = "zoomWithCenter";
     public static final String FUNCTION_ZOOM_TO_RECT = "zoomToRect";
     public static final String FUNCTION_GET_ZOOM = "getZoom";
     public static final String FUNCTION_SET_ZOOM_LIMITS = "setZoomLimits";
+    public static final String FUNCTION_SMART_ZOOM = "smartZoom";
     public static final String FUNCTION_GET_SAVED_SIGNATURES = "getSavedSignatures";
     public static final String FUNCTION_GET_SAVED_SIGNATURE_FOLDER = "getSavedSignatureFolder";
     public static final String FUNCTION_GET_SAVED_SIGNATURE_JPG_FOLDER = "getSavedSignatureJpgFolder";
+    public static final String FUNCTION_GET_VISIBLE_PAGES = "getVisiblePages";
 
     public static final String BUTTON_TOOLS = "toolsButton";
     public static final String BUTTON_SEARCH = "searchButton";
@@ -517,6 +537,11 @@ public class PluginUtils {
     public static final String MENU_ID_STRING_TRANSLATE = "translate";
     public static final String MENU_ID_STRING_UNGROUP = "ungroup";
 
+    // RGB colors
+    public static final String COLOR_RED = "red";
+    public static final String COLOR_GREEN = "green";
+    public static final String COLOR_BLUE = "blue";
+
     // Toolbars
     public static final String TAG_VIEW_TOOLBAR = "PDFTron_View";
     public static final String TAG_ANNOTATE_TOOLBAR = "PDFTron_Annotate";
@@ -561,6 +586,9 @@ public class PluginUtils {
     public static boolean isBookmarkListVisible = true;
     public static boolean isOutlineListVisible = true;
     public static boolean isAnnotationListVisible = true;
+
+    public static final AtomicInteger toolIdGenerator = new AtomicInteger(1000);
+    public static final SparseArray<String> mToolIdMap = new SparseArray<>();
 
     private static AnnotManager.EditPermissionMode mAnnotationManagerEditMode = AnnotManager.EditPermissionMode.EDIT_OTHERS;
     private static PDFViewCtrl.AnnotationManagerMode mAnnotationManagerUndoMode = PDFViewCtrl.AnnotationManagerMode.ADMIN_UNDO_OTHERS;
@@ -937,6 +965,10 @@ public class PluginUtils {
                     boolean signaturePhotoPickerEnabled = configJson.getBoolean(KEY_CONFIG_SIGNATURE_PHOTO_PICKER_ENABLED);
                     toolManagerBuilder = toolManagerBuilder.setShowSignatureFromImage(signaturePhotoPickerEnabled);
                 }
+                if (!configJson.isNull(KEY_CONFIG_SIGNATURE_TYPING_ENABLED)) {
+                    boolean signatureTypingEnabled = configJson.getBoolean(KEY_CONFIG_SIGNATURE_TYPING_ENABLED);
+                    toolManagerBuilder = toolManagerBuilder.setShowTypedSignature(signatureTypingEnabled);
+                }
                 if (!configJson.isNull(KEY_CONFIG_USE_STYLUS_AS_PEN)) {
                     boolean useStylusAsPen = configJson.getBoolean(KEY_CONFIG_USE_STYLUS_AS_PEN);
                     configInfo.setUseStylusAsPen(useStylusAsPen);
@@ -944,6 +976,10 @@ public class PluginUtils {
                 if (!configJson.isNull(KEY_CONFIG_SIGN_SIGNATURE_FIELD_WITH_STAMPS)) {
                     boolean signSignatureFieldWithStamps = configJson.getBoolean(KEY_CONFIG_SIGN_SIGNATURE_FIELD_WITH_STAMPS);
                     configInfo.setSignSignatureFieldWithStamps(signSignatureFieldWithStamps);
+                }
+                if (!configJson.isNull(KEY_CONFIG_SIGNATURE_COLORS)) {
+                    JSONArray signatureColors = configJson.getJSONArray(KEY_CONFIG_SIGNATURE_COLORS);
+                    toolManagerBuilder = setSignatureColors(signatureColors, toolManagerBuilder);
                 }
                 if (!configJson.isNull(KEY_CONFIG_SELECT_ANNOTATION_AFTER_CREATION)) {
                     boolean selectAnnotationAfterCreation = configJson.getBoolean(KEY_CONFIG_SELECT_ANNOTATION_AFTER_CREATION);
@@ -971,7 +1007,7 @@ public class PluginUtils {
                 }
                 if (!configJson.isNull(KEY_CONFIG_ANNOTATION_TOOLBARS)) {
                     JSONArray array = configJson.getJSONArray(KEY_CONFIG_ANNOTATION_TOOLBARS);
-                    setAnnotationBars(array, builder);
+                    setAnnotationBars(array, builder, context);
                 }
                 if (!configJson.isNull(KEY_CONFIG_HIDE_DEFAULT_ANNOTATION_TOOLBARS)) {
                     JSONArray array = configJson.getJSONArray(KEY_CONFIG_HIDE_DEFAULT_ANNOTATION_TOOLBARS);
@@ -1197,6 +1233,14 @@ public class PluginUtils {
                     Boolean quickBookmark = configJson.getBoolean(KEY_CONFIG_QUICK_BOOKMARK_CREATION);
                     builder.quickBookmarkCreation(quickBookmark);
                 }
+                if (!configJson.isNull(KEY_CONFIG_FULL_SCREEN_MODE_ENABLED)) {
+                    boolean fullScreenMode = configJson.getBoolean(KEY_CONFIG_FULL_SCREEN_MODE_ENABLED);
+                    PdfViewCtrlSettingsManager.setFullScreenMode(context, fullScreenMode);
+                    builder.fullscreenModeEnabled(fullScreenMode);
+                } else {
+                    PdfViewCtrlSettingsManager.setFullScreenMode(context, false);
+                    builder.fullscreenModeEnabled(false);
+                }
             } catch (Exception ex) {
                 ex.printStackTrace();
             }
@@ -1230,7 +1274,10 @@ public class PluginUtils {
         return configInfo;
     }
 
-    private static void setAnnotationBars(JSONArray array, ViewerConfig.Builder builder) throws JSONException {
+    private static void setAnnotationBars(JSONArray array, ViewerConfig.Builder builder, Context context) throws JSONException {
+        if (context == null) {
+            return;
+        }
         for (int i = 0; i < array.length(); i++) {
             Object annotationBar = array.get(i);
             if (annotationBar instanceof String) {
@@ -1264,15 +1311,40 @@ public class PluginUtils {
                             .setToolbarName(toolbarName)
                             .setIcon(convStringToToolbarDefaultIconRes(toolbarIcon));
                     for (int j = 0; j < toolbarItems.length(); j++) {
-                        String toolStr = toolbarItems.getString(j);
-                        ToolbarButtonType buttonType = convStringToToolbarType(toolStr);
-                        int buttonId = convStringToButtonId(toolStr);
-                        if (buttonType != null && buttonId != 0) {
-                            if (buttonType == ToolbarButtonType.UNDO ||
-                                    buttonType == ToolbarButtonType.REDO) {
-                                toolbarBuilder.addToolStickyButton(buttonType, buttonId);
-                            } else {
-                                toolbarBuilder.addToolButton(buttonType, buttonId);
+                        Object type = toolbarItems.get(j);
+                        if (type instanceof String) {
+                            String toolStr = toolbarItems.getString(j);
+                            ToolbarButtonType buttonType = convStringToToolbarType(toolStr);
+                            int buttonId = convStringToButtonId(toolStr);
+                            if (buttonType != null && buttonId != 0) {
+                                if (buttonType == ToolbarButtonType.UNDO ||
+                                        buttonType == ToolbarButtonType.REDO) {
+                                    toolbarBuilder.addToolStickyButton(buttonType, buttonId);
+                                } else {
+                                    toolbarBuilder.addToolButton(buttonType, buttonId);
+                                }
+                            }
+                        } else if (type instanceof JSONObject) {
+                            // custom buttons
+                            JSONObject item = toolbarItems.getJSONObject(j);
+                            String itemId = null, itemName = null, itemIcon = null;
+                            if (!item.isNull(TOOLBAR_KEY_ID)) {
+                                itemId = item.getString(TOOLBAR_KEY_ID);
+                            }
+                            if (!item.isNull(TOOLBAR_KEY_NAME)) {
+                                itemName = item.getString(TOOLBAR_KEY_NAME);
+                            }
+                            if (!item.isNull(TOOLBAR_KEY_ICON)) {
+                                itemIcon = item.getString(TOOLBAR_KEY_ICON);
+                            }
+
+                            if (!Utils.isNullOrEmpty(itemId) && itemName != null && !Utils.isNullOrEmpty(itemIcon)) {
+                                int res = Utils.getResourceDrawable(context, itemIcon);
+                                if (res != 0) {
+                                    int id = toolIdGenerator.getAndIncrement();
+                                    mToolIdMap.put(id, itemId);
+                                    toolbarBuilder.addCustomButton(itemName, res, id);
+                                }
                             }
                         }
                     }
@@ -1304,6 +1376,24 @@ public class PluginUtils {
         }
 
         builder.bottomBarBuilder(customBottomBar);
+    }
+
+    private static ToolManagerBuilder setSignatureColors(JSONArray array, ToolManagerBuilder toolManagerBuilder) throws JSONException {
+        int[] signatureColors = new int[array.length()];
+
+        for (int i = 0; i < array.length(); i++) {
+            JSONObject color = array.getJSONObject(i);
+
+            if (color != null) {
+                int red = color.getInt(COLOR_RED);
+                int green = color.getInt(COLOR_GREEN);
+                int blue = color.getInt(COLOR_BLUE);
+
+                signatureColors[i] = Color.rgb(red, green, blue);
+            }
+        }
+
+        return toolManagerBuilder.setSignatureColors(signatureColors);
     }
 
     private static Uri getUri(Context context, String path, boolean isBase64, String base64FileExtension) {
@@ -2505,6 +2595,21 @@ public class PluginUtils {
                 }
                 break;
             }
+            case FUNCTION_START_SEARCH_MODE: {
+                checkFunctionPrecondition(component);
+                try {
+                    startSearchMode(call, result, component);
+                } catch (JSONException ex) {
+                    ex.printStackTrace();
+                    result.error(Integer.toString(ex.hashCode()), "JSONException Error: " + ex, null);
+                }
+                break;
+            }
+            case FUNCTION_EXIT_SEARCH_MODE: {
+                checkFunctionPrecondition(component);
+                exitSearchMode(result, component);
+                break;
+            }
             case FUNCTION_ZOOM_WITH_CENTER: {
                 checkFunctionPrecondition(component);
                 zoomWithCenter(call, result, component);
@@ -2530,6 +2635,16 @@ public class PluginUtils {
                 }
                 break;
             }
+            case FUNCTION_SMART_ZOOM: {
+                checkFunctionPrecondition(component);
+                smartZoom(call, result, component);
+                break;
+            }
+            case FUNCTION_GET_VISIBLE_PAGES: {
+                checkFunctionPrecondition(component);
+                getVisiblePages(result, component);
+                break;
+            }
             default:
                 Log.e("PDFTronFlutter", "notImplemented: " + call.method);
                 result.notImplemented();
@@ -2538,6 +2653,19 @@ public class PluginUtils {
     }
 
     // Methods
+
+    private static void smartZoom(MethodCall call, MethodChannel.Result result, ViewerComponent component) {
+        int x = call.argument(KEY_X);
+        int y = call.argument(KEY_Y);
+        boolean animated = call.argument(KEY_ANIMATED);
+        PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
+        if (null == pdfViewCtrl) {
+            result.error("InvalidState", "Activity not attached", null);
+            return;
+        }
+        pdfViewCtrl.smartZoom(x, y, animated);
+        result.success(null);
+    }
 
     private static void setZoomLimits(MethodCall call, MethodChannel.Result result, ViewerComponent component)
             throws PDFNetException {
@@ -2565,9 +2693,13 @@ public class PluginUtils {
         if (limitMode != null) {
             try {
                 pdfViewCtrl.setZoomLimits(limitMode, minimum, maximum);
+                result.success(null);
             } catch (PDFNetException ex) {
                 ex.printStackTrace();
+                result.error(Long.toString(ex.getErrorCode()), "PDFTronException Error: " + ex, null);
             }
+        } else {
+            result.error("InvalidState", "Invalid zoom limit mode", null);
         }
     }
 
@@ -3982,6 +4114,34 @@ public class PluginUtils {
         }
     }
 
+    public static void startSearchMode(MethodCall call, MethodChannel.Result result, ViewerComponent component) throws JSONException {
+        PdfViewCtrlTabFragment2 pdfViewCtrlTabFragment = component.getPdfViewCtrlTabFragment();
+        String searchString = call.argument(KEY_SEARCH_STRING);
+        boolean matchCase = call.argument(KEY_MATCH_CASE);
+        boolean matchWholeWord = call.argument(KEY_MATCH_WHOLE_WORD);
+        if (pdfViewCtrlTabFragment != null) {
+            pdfViewCtrlTabFragment.setSearchMode(true);
+            pdfViewCtrlTabFragment.setSearchQuery(searchString);
+            pdfViewCtrlTabFragment.setSearchMatchCase(matchCase);
+            pdfViewCtrlTabFragment.setSearchWholeWord(matchWholeWord);
+            pdfViewCtrlTabFragment.queryTextSubmit(searchString);
+            result.success(null);
+        } else {
+            result.error("InvalidState", "Activity not attached", null);
+        }
+    }
+
+    public static void exitSearchMode(MethodChannel.Result result, ViewerComponent component) {
+        PdfViewCtrlTabFragment2 pdfViewCtrlTabFragment = component.getPdfViewCtrlTabFragment();
+        if (pdfViewCtrlTabFragment != null) {
+            pdfViewCtrlTabFragment.setSearchMode(false);
+            pdfViewCtrlTabFragment.cancelFindText();
+            pdfViewCtrlTabFragment.exitSearchMode();
+        } else {
+            result.error("InvalidState", "Activity not attached", null);
+        }
+    }
+
     private static void zoomWithCenter(MethodCall call, MethodChannel.Result result, ViewerComponent component) {
         PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
         if (pdfViewCtrl == null) {
@@ -4015,6 +4175,16 @@ public class PluginUtils {
             result.error(Long.toString(ex.getErrorCode()), "PDFTronException Error: " + ex, null);
         }
 
+    }
+
+    private static void getVisiblePages(MethodChannel.Result result, ViewerComponent component) {
+        PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
+        if (pdfViewCtrl == null) {
+            result.error("InvalidState", "PDFViewCtrl not found", null);
+            return;
+        }
+        int[] visiblePages = pdfViewCtrl.getVisiblePages();
+        result.success(visiblePages);
     }
 
     // Events
@@ -4122,10 +4292,13 @@ public class PluginUtils {
         }
     }
 
-    public static void handleWillHideEditMenu(ViewerComponent component) {
-        EventChannel.EventSink willHideEditMenuEventSink = component.getWillHideEditMenuEventEmitter();
-        if (willHideEditMenuEventSink != null) {
-            willHideEditMenuEventSink.success(null);
+    public static void handleAnnotationCustomToolbarItemPressed(ViewerComponent component, MenuItem item) {
+        EventChannel.EventSink annotationCustomToolbarItemPressedEventSink = component.getAnnotationToolbarItemPressedEventEmitter();
+        int itemId = item.getItemId();
+        String itemKey = mToolIdMap.get(itemId);
+        if (itemKey != null && annotationCustomToolbarItemPressedEventSink != null) {
+            // this is a custom button
+            annotationCustomToolbarItemPressedEventSink.success(itemId);
         }
     }
 
