@@ -26,6 +26,7 @@ import static com.pdftron.pdftronflutter.helpers.PluginUtils.KEY_LICENSE_KEY;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.KEY_PASSWORD;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.KEY_REQUESTED_ORIENTATION;
 
+import static com.pdftron.pdftronflutter.helpers.PluginUtils.EVENT_WILL_HIDE_EDIT_MENU;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.EVENT_ANNOTATIONS_SELECTED;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.EVENT_ANNOTATION_CHANGED;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.EVENT_BEHAVIOR_ACTIVATED;
