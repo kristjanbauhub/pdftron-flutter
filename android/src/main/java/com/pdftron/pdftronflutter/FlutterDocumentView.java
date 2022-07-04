@@ -60,19 +60,6 @@ public class FlutterDocumentView implements PlatformView, MethodChannel.MethodCa
 
     public void registerWith(BinaryMessenger messenger) {
 
-        final EventChannel willHideEditMenuEventChannel = new EventChannel(messenger, EVENT_WILL_HIDE_EDIT_MENU);
-        willHideEditMenuEventChannel.setStreamHandler(new EventChannel.StreamHandler() {
-            @Override
-            public void onListen(Object arguments, EventChannel.EventSink emitter) {
-                documentView.setWillHideEditMenuEventEmitter(emitter);
-            }
-
-            @Override
-            public void onCancel(Object arguments) {
-                documentView.setWillHideEditMenuEventEmitter(null);
-            }
-        });
-
         final EventChannel annotEventChannel = new EventChannel(messenger, EVENT_EXPORT_ANNOTATION_COMMAND);
         annotEventChannel.setStreamHandler(new EventChannel.StreamHandler() {
             @Override

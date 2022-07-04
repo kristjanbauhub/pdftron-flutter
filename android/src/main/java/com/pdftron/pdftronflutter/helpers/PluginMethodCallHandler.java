@@ -50,19 +50,6 @@ public class PluginMethodCallHandler implements MethodCallHandler {
     public PluginMethodCallHandler(BinaryMessenger messenger, Context context) {
         mContext = context;
 
-        final EventChannel willHideEditMenuEventChannel = new EventChannel(messenger, EVENT_WILL_HIDE_EDIT_MENU);
-        willHideEditMenuEventChannel.setStreamHandler(new EventChannel.StreamHandler() {
-            @Override
-            public void onListen(Object arguments, EventChannel.EventSink emitter) {
-                FlutterDocumentActivity.setWillHideEditMenuEventEmitter(emitter);
-            }
-
-            @Override
-            public void onCancel(Object arguments) {
-                FlutterDocumentActivity.setWillHideEditMenuEventEmitter(null);
-            }
-        });
-
         final EventChannel annotEventChannel = new EventChannel(messenger, EVENT_EXPORT_ANNOTATION_COMMAND);
         annotEventChannel.setStreamHandler(new EventChannel.StreamHandler() {
             @Override

@@ -68,7 +68,6 @@ public class FlutterDocumentActivity extends DocumentActivity implements ViewerC
 
     private static AtomicReference<Result> sFlutterLoadResult = new AtomicReference<>();
 
-    private static AtomicReference<EventSink> sWillHideEditMenuEventEmitter = new AtomicReference<>();
     private static AtomicReference<EventSink> sExportAnnotationCommandEventEmitter = new AtomicReference<>();
     private static AtomicReference<EventSink> sExportBookmarkEventEmitter = new AtomicReference<>();
     private static AtomicReference<EventSink> sDocumentLoadedEventEmitter = new AtomicReference<>();
@@ -193,10 +192,6 @@ public class FlutterDocumentActivity extends DocumentActivity implements ViewerC
         }
     }
 
-    public static void setWillHideEditMenuEventEmitter(EventSink emitter) {
-        sWillHideEditMenuEventEmitter.set(emitter);
-    }
-
     public static void setExportAnnotationCommandEventEmitter(EventSink emitter) {
         sExportAnnotationCommandEventEmitter.set(emitter);
     }
@@ -267,10 +262,6 @@ public class FlutterDocumentActivity extends DocumentActivity implements ViewerC
 
     public void setSelectedAnnots(HashMap<Annot, Integer> selectedAnnots) {
         mSelectedAnnots = selectedAnnots;
-    }
-
-    public EventSink getWillHideEditMenuEventEmitter() {
-        return sWillHideEditMenuEventEmitter.get();
     }
 
     @Override
@@ -403,7 +394,6 @@ public class FlutterDocumentActivity extends DocumentActivity implements ViewerC
 
         super.onDestroy();
 
-        sWillHideEditMenuEventEmitter.set(null);
         sExportAnnotationCommandEventEmitter.set(null);
         sExportBookmarkEventEmitter.set(null);
         sDocumentLoadedEventEmitter.set(null);

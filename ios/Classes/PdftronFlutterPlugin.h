@@ -298,7 +298,6 @@ static NSString * const PTMatchWholeWordArgumentKey = @"matchWholeWord";
 static NSString * const PTAnimatedArgumentKey = @"animated";
 
 // event strings
-static NSString * const PTWillHideEditMenuEventKey = @"will_hide_edit_menu_event";
 static NSString * const PTExportAnnotationCommandEventKey = @"export_annotation_command_event";
 static NSString * const PTExportBookmarkEventKey = @"export_bookmark_event";
 static NSString * const PTDocumentLoadedEventKey = @"document_loaded_event";
@@ -475,7 +474,6 @@ typedef enum
     leadingNavButtonPressedId,
     pageChangedId,
     zoomChangedId,
-    willHideEditMenuId,
     pageMovedId,
     scrollChangedId,
 } EventSinkId;

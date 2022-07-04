@@ -52,8 +52,6 @@ public interface ViewerComponent {
 
     ArrayList<File> getTempFiles();
 
-    EventChannel.EventSink getWillHideEditMenuEventEmitter();
-
     EventChannel.EventSink getExportAnnotationCommandEventEmitter();
 
     EventChannel.EventSink getExportBookmarkEventEmitter();

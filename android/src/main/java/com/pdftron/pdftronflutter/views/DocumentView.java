@@ -43,7 +43,6 @@ import io.flutter.plugin.common.MethodChannel;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.handleAnnotationCustomToolbarItemPressed;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.handleDocumentLoaded;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.handleLeadingNavButtonPressed;
-import static com.pdftron.pdftronflutter.helpers.PluginUtils.handleWillHideEditMenu;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.handleOnDetach;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.handleOpenDocError;
 
@@ -78,7 +77,6 @@ public class DocumentView extends com.pdftron.pdf.controls.DocumentView2 impleme
     private static String mUserName;
 
     private EventChannel.EventSink sExportAnnotationCommandEventEmitter;
-    private EventChannel.EventSink sWillHideEditMenuEventEmitter;
     private EventChannel.EventSink sExportBookmarkEventEmitter;
     private EventChannel.EventSink sDocumentLoadedEventEmitter;
     private EventChannel.EventSink sDocumentErrorEventEmitter;
@@ -276,52 +274,6 @@ public class DocumentView extends com.pdftron.pdf.controls.DocumentView2 impleme
         handleDocumentLoaded(this);
     }
 
-    private void setCustomQuickMenuListener() {
-        mPdfViewCtrlTabHostFragment.getCurrentPdfViewCtrlFragment().addQuickMenuListener(new ToolManager.QuickMenuListener() {
-            @Override
-            public boolean onQuickMenuClicked(QuickMenuItem quickMenuItem) {
-                return false;
-            }
-
-            @Override
-            public boolean onShowQuickMenu(QuickMenu quickMenu, Annot annot) {
-                try {
-                    if (annot != null && quickMenu != null) {
-                        ArrayList<QuickMenuItem> items = new ArrayList<>();
-                        items.addAll(quickMenu.getFirstRowMenuItems());
-                        items.addAll(quickMenu.getSecondRowMenuItems());
-                        items.addAll(quickMenu.getOverflowMenuItems());
-                        ArrayList<QuickMenuItem> removableItems = new ArrayList<>();
-
-                        for (QuickMenuItem item : items) {
-                            if (Objects.equals(item.toString(), "Flatten")) {
-                                removableItems.add(item);
-                            }
-                            if (annot.getType() == 12) {
-                                if (Objects.equals(item.toString(), "Add Comment") || Objects.equals(item.toString(), "Copy") || Objects.equals(item.toString(), "Crop")) {
-                                    removableItems.add(item);
-                                }
-                            }
-                        }
-                        quickMenu.removeMenuEntries(removableItems);
-                    }
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                }
-                return false;
-            }
-
-            @Override
-            public void onQuickMenuShown() { }
-
-            @Override
-            public void onQuickMenuDismissed() {
-                // TODO: Siia saaks panna taski nupu ära kaotamise
-                handleWillHideEditMenu(_this);
-            }
-        });
-    }
-
     @Override
     public boolean onOpenDocError() {
         super.onOpenDocError();
@@ -441,10 +393,6 @@ public class DocumentView extends com.pdftron.pdf.controls.DocumentView2 impleme
 
     public void setZoomChangedEventEmitter(EventChannel.EventSink emitter) {
         sZoomChangedEventEmitter = emitter;
-    }
-
-    public void setWillHideEditMenuEventEmitter(EventChannel.EventSink emitter) {
-        sWillHideEditMenuEventEmitter = emitter;
     }
 
     public void setPageMovedEventEmitter(EventChannel.EventSink emitter) {

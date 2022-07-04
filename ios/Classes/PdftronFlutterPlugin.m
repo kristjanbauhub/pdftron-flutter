@@ -6,7 +6,6 @@
 @interface PdftronFlutterPlugin () <PTTabbedDocumentViewControllerDelegate, PTDocumentControllerDelegate>
 
 @property (nonatomic, strong) id config;
-@property (nonatomic, strong) FlutterEventSink willHideEditMenuEventSink;
 @property (nonatomic, strong) FlutterEventSink xfdfEventSink;
 @property (nonatomic, strong) FlutterEventSink bookmarkEventSink;
 @property (nonatomic, strong) FlutterEventSink documentLoadedEventSink;
@@ -1227,9 +1226,6 @@
         case zoomChangedId:
             self.zoomChangedEventSink = events;
             break;
-        case willHideEditMenuId:
-            self.willHideEditMenuEventSink = events;
-            break;
         case pageMovedId:
             self.pageMovedEventSink = events;
             break;
@@ -1286,9 +1282,6 @@
         case zoomChangedId:
             self.zoomChangedEventSink = nil;
             break;
-        case willHideEditMenuId:
-            self.willHideEditMenuEventSink = nil;
-            break;
         case pageMovedId:
             self.pageMovedEventSink = nil;
             break;
@@ -1320,14 +1313,6 @@
 }
 
 #pragma mark - EventSinks
-
--(void)documentController:(PTDocumentController *)docVC willHideEditMenu:(nullable NSString *)nav
-{
-    if (self.willHideEditMenuEventSink != nil)
-    {
-        self.willHideEditMenuEventSink(nil);
-    }
-}
 
 -(void)documentController:(PTDocumentController*)documentController bookmarksDidChange:(NSString*)bookmarkJson
 {
@@ -1919,8 +1904,6 @@
         [self presentTabbedDocumentViewController];
     }
     
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(willHideEditMenu:) name:UIMenuControllerDidHideMenuNotification object:nil];
-
     ((PTFlutterDocumentController*)self.tabbedDocumentViewController.childViewControllers.lastObject).openResult = flutterResult;
     
     PTFlutterDocumentController *documentController = (PTFlutterDocumentController *) [self getDocumentController];
@@ -1928,13 +1911,6 @@
         [[self class] configureDocumentController:documentController
                                            withConfig:self.config];
         documentController.docCtrlrConfigured = YES;
-    }
-}
-
-- (void) willHideEditMenu:(NSNotification *) notification
-{
-    if ([[notification name] isEqualToString:UIMenuControllerDidHideMenuNotification]) {
-        [self documentController:[self getDocumentController] willHideEditMenu:nil];
     }
 }
 
