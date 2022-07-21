@@ -1021,6 +1021,8 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
 
     _annotationsListEditingEnabled = YES;
     _userBookmarksListEditingEnabled = YES;
+    _outlineListEditingEnabled = YES;
+    
     _showNavigationListAsSidePanelOnLargeDevices = YES;
 
     _imageInReflowModeEnabled = YES;
@@ -1095,6 +1097,8 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
 
     self.navigationListsViewController.annotationViewController.readonly = !self.isAnnotationsListEditingEnabled;
     self.navigationListsViewController.bookmarkViewController.readonly = !self.userBookmarksListEditingEnabled;
+    self.navigationListsViewController.outlineViewController.readonly = !self.outlineListEditingEnabled;
+    
     [self excludeAnnotationListTypes:self.excludedAnnotationListTypes];
     self.alwaysShowNavigationListsAsModal = !self.showNavigationListAsSidePanelOnLargeDevices;
 

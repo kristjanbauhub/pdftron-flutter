@@ -2,26 +2,26 @@ library pdftron;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
-import 'package:flutter/rendering.dart';
 
-part 'options.dart';
-part 'document_view.dart';
-part 'events.dart';
-part 'config.dart';
-part 'constants.dart';
+import 'src/options.dart';
+import 'src/document_view.dart';
+import 'src/events.dart';
+import 'src/config.dart';
+import 'src/constants.dart';
+
+export 'src/options.dart';
+export 'src/document_view.dart';
+export 'src/events.dart';
+export 'src/config.dart';
+export 'src/constants.dart';
 
 class PdftronFlutter {
   static const MethodChannel _channel = const MethodChannel('pdftron_flutter');
 
   static Future<String> get platformVersion async {
-    final String version =
-        await _channel.invokeMethod(Functions.getPlatformVersion);
+    final String version = await _channel.invokeMethod(Functions.getPlatformVersion);
     return version;
   }
 
@@ -341,7 +341,7 @@ class PdftronFlutter {
   static Future<void> exitSearchMode() {
     return _channel.invokeMethod(Functions.exitSearchMode);
   }
-  
+
   /// Sets the zoom scale in the current document viewer with a zoom center.
   ///
   /// zoom: the zoom ratio to be set
@@ -351,7 +351,7 @@ class PdftronFlutter {
     return _channel.invokeMethod(Functions.zoomWithCenter,
         <String, dynamic>{"zoom": zoom, "x": x, "y": y});
   }
-  
+
   /// Zoom the viewer to a specific rectangular area in a page.
   ///
   /// pageNumber: the page number of the zooming area (1-indexed)
@@ -425,5 +425,20 @@ class PdftronFlutter {
   /// Return a Promise
   static Future<List<int>?> getVisiblePages() {
     return _channel.invokeMethod(Functions.getVisiblePages);
+  }
+
+  // Hygen Generated Methods
+  /// Gets the list of annotations on the given page.
+  static Future<List<Annot>?> getAnnotationsOnPage(int pageNumber) {
+    return _channel.invokeMethod(Functions.getAnnotationsOnPage, <String, dynamic>{
+      Parameters.pageNumber: pageNumber
+    }).then((jsonArray) {
+      List<dynamic> annotations = jsonDecode(jsonArray);
+      List<Annot> annotList = new List<Annot>.empty(growable: true);
+      for (dynamic annotation in annotations) {
+        annotList.add(new Annot.fromJson(annotation));
+      }
+      return annotList;
+    });
   }
 }
