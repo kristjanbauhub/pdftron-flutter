@@ -3168,7 +3168,9 @@
             && ![tool isKindOfClass:[PTFreeHandHighlightCreate class]]) {
             ((PTFreeHandCreate *)tool).multistrokeMode = YES;
         }
+
         
+
         if ([tool isKindOfClass:[BauhubTaskTool class]]) {
             NSString *colorCode = [toolMode substringFromIndex: [toolMode length] - 6];
             [((BauhubTaskTool *)tool) setTaskImageName:[NSString stringWithFormat:@"%@%@", @"task_", colorCode]];
