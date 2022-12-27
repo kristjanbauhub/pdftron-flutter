@@ -3386,7 +3386,7 @@ public class PluginUtils {
                                 flagNumber = Annot.e_locked_contents;
                                 break;
                             case ANNOTATION_FLAG_NO_ROTATE:
-                                //flagNumber = Annot.e_no_rotate;
+                                flagNumber = Annot.e_no_rotate;
                                 break;
                             case ANNOTATION_FLAG_NO_VIEW:
                                 flagNumber = Annot.e_no_view;

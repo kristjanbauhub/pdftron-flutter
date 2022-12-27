@@ -2397,7 +2397,7 @@
             } else if ([currentFlag isEqualToString:PTAnnotationFlagNoZoomKey]) {
                 flagNumber = e_ptno_zoom;
             } else if ([currentFlag isEqualToString:PTAnnotationFlagNoRotateKey]) {
-                //flagNumber = e_ptno_rotate;
+                flagNumber = e_ptno_rotate;
             } else if ([currentFlag isEqualToString:PTAnnotationFlagReadOnlyKey]) {
                 flagNumber = e_ptread_only;
             } else if ([currentFlag isEqualToString:PTAnnotationFlagToggleNoViewKey]) {
