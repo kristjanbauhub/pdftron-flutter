@@ -57,10 +57,6 @@ public class BauhubTaskTool extends Stamper {
     @Override
     protected void addStamp() {
         try {
-            System.out.println("asdasdasd addstamp");
-            System.out.println(this.rawImageInt);
-            System.out.println(mPdfViewCtrl.getContext());
-            System.out.println(this.imageName);
             File resource = Utils.copyResourceToLocal(mPdfViewCtrl.getContext(), this.rawImageInt, this.imageName, "png");
             createImageStamp(Uri.fromFile(resource), 0, null);
         } catch (Resources.NotFoundException e) {
