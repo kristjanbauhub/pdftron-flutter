@@ -3825,7 +3825,7 @@ public class PluginUtils {
         if (toolModeString.contains("BauhubTaskTool")) {
             String colorCode = toolModeString.substring(toolModeString.length() - 6).toLowerCase();
             String imageName = "task_" + colorCode;
-            int rawImageInt = context.getResources().getIdentifier("raw/" + imageName, null, context.getPackageName());
+            int rawImageInt = context.getResources().getIdentifier(imageName, "raw", context.getPackageName());
             System.out.println(context.getResources());
             System.out.println(context.getPackageName());
             System.out.println("oiuoiuoiud addstamp00");
@@ -3834,7 +3834,10 @@ public class PluginUtils {
             System.out.println(imageName);
 
             tool = (Tool) toolManager.createTool(BauhubTaskTool.MODE, toolManager.getTool());
-            ((BauhubTaskTool)tool).setImage(rawImageInt, imageName);
+            if (rawImageInt > 0) {
+                System.out.println("ASLKDJLAKSJDLKJASLDJL 87987978");
+                ((BauhubTaskTool)tool).setImage(rawImageInt, imageName);
+            }
         }
 
         if (toolModeString.contains("BauhubPlusIconTool")) {
