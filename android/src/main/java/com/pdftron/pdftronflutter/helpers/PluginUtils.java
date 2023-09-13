@@ -8,11 +8,11 @@ import android.util.Base64;
 import android.util.Log;
 import android.util.SparseArray;
 import android.view.Gravity;
+import android.view.Menu;
 import android.view.MenuItem;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.fragment.app.FragmentActivity;
 
 import com.pdftron.common.PDFNetException;
 import com.pdftron.fdf.FDFDoc;
@@ -28,9 +28,7 @@ import com.pdftron.pdf.config.PDFViewCtrlConfig;
 import com.pdftron.pdf.config.ToolConfig;
 import com.pdftron.pdf.config.ToolManagerBuilder;
 import com.pdftron.pdf.config.ViewerConfig;
-import com.pdftron.pdf.controls.PdfViewCtrlTabBaseFragment;
 import com.pdftron.pdf.controls.PdfViewCtrlTabFragment2;
-import com.pdftron.pdf.controls.PdfViewCtrlTabHostBaseFragment;
 import com.pdftron.pdf.controls.PdfViewCtrlTabHostFragment2;
 import com.pdftron.pdf.controls.ReflowControl;
 import com.pdftron.pdf.controls.ThumbnailsViewFragment;
@@ -38,6 +36,7 @@ import com.pdftron.pdf.controls.UserCropSelectionDialogFragment;
 import com.pdftron.pdf.dialog.RotateDialogFragment;
 import com.pdftron.pdf.dialog.ViewModePickerDialogFragment;
 import com.pdftron.pdf.dialog.pdflayer.PdfLayerDialog;
+import com.pdftron.pdf.dialog.signature.SignatureDialogFragment;
 import com.pdftron.pdf.model.AnnotStyle;
 import com.pdftron.pdf.tools.AdvancedShapeCreate;
 import com.pdftron.pdf.tools.AnnotEditRectGroup;
@@ -46,7 +45,6 @@ import com.pdftron.pdf.tools.FreehandCreate;
 import com.pdftron.pdf.tools.QuickMenuItem;
 import com.pdftron.pdf.tools.Tool;
 import com.pdftron.pdf.tools.ToolManager;
-import com.pdftron.pdf.tools.UndoRedoManager;
 import com.pdftron.pdf.tools.AnnotManager;
 import com.pdftron.pdf.utils.AnalyticsHandlerAdapter;
 import com.pdftron.pdf.utils.AnnotUtils;
@@ -73,7 +71,6 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -117,6 +114,9 @@ public class PluginUtils {
     public static final String KEY_ZOOM_LIMIT_MODE_NONE = "none";
     public static final String KEY_ZOOM_LIMIT_MODE_ABSOLUTE = "absolute";
     public static final String KEY_ZOOM_LIMIT_MODE_RELATIVE = "relative";
+    public static final String KEY_RED = "red";
+    public static final String KEY_GREEN = "green";
+    public static final String KEY_BLUE = "blue";
     public static final String KEY_ANIMATED = "animated";
 
     public static final String KEY_REQUESTED_ORIENTATION = "requestedOrientation";
@@ -199,8 +199,10 @@ public class PluginUtils {
     public static final String KEY_CONFIG_ANNOTATION_TOOLBAR_GRAVITY = "annotationToolbarAlignment";
     public static final String KEY_CONFIG_QUICK_BOOKMARK_CREATION = "quickBookmarkCreation";
     public static final String KEY_CONFIG_FULL_SCREEN_MODE_ENABLED = "fullScreenModeEnabled";
+    public static final String KEY_CONFIG_TOP_APP_NAV_BAR_RIGHT_BAR = "topAppNavBarRightBar";
 
     // Hygen Generated Config Constants
+    public static final String KEY_CONFIG_MAX_SIGNATURE_COUNT = "maxSignatureCount";
 
     public static final String KEY_X1 = "x1";
     public static final String KEY_Y1 = "y1";
@@ -249,11 +251,18 @@ public class PluginUtils {
     public static final String KEY_GRAVITY_START = "GravityStart";
     public static final String KEY_GRAVITY_END = "GravityEnd";
 
+    public static final String KEY_HORIZONTAL_SCROLL_POSITION = "horizontalScrollPosition";
+    public static final String KEY_VERTICAL_SCROLL_POSITION = "verticalScrollPosition";
+
     public static final String KEY_SEARCH_STRING = "searchString";
     public static final String KEY_MATCH_CASE = "matchCase";
     public static final String KEY_MATCH_WHOLE_WORD = "matchWholeWord";
 
     // Hygen Generated Method Parameters
+    public static final String KEY_LAYOUT_MODE = "layoutMode";
+
+    public static final String KEY_FIT_MODE = "fitMode";
+
 
     public static final String EVENT_EXPORT_ANNOTATION_COMMAND = "export_annotation_command_event";
     public static final String EVENT_EXPORT_BOOKMARK = "export_bookmark_event";
@@ -271,8 +280,8 @@ public class PluginUtils {
     public static final String EVENT_PAGE_MOVED = "page_moved_event";
     public static final String EVENT_ANNOTATION_TOOLBAR_ITEM_PRESSED = "annotation_toolbar_item_pressed_event";
     public static final String EVENT_SCROLL_CHANGED = "scroll_changed_event";
-
     // Hygen Generated Event Listeners
+    public static final String EVENT_APP_BAR_BUTTON_PRESSED = "app_bar_button_pressed_event";
 
     public static final String FUNCTION_GET_PLATFORM_VERSION = "getPlatformVersion";
     public static final String FUNCTION_GET_VERSION = "getVersion";
@@ -295,6 +304,7 @@ public class PluginUtils {
     public static final String FUNCTION_SET_FLAG_FOR_FIELDS = "setFlagForFields";
     public static final String FUNCTION_SET_VALUES_FOR_FIELDS = "setValuesForFields";
     public static final String FUNCTION_IMPORT_ANNOTATIONS = "importAnnotations";
+    public static final String FUNCTION_MERGE_ANNOTATIONS = "mergeAnnotations";
     public static final String FUNCTION_EXPORT_ANNOTATIONS = "exportAnnotations";
     public static final String FUNCTION_FLATTEN_ANNOTATIONS = "flattenAnnotations";
     public static final String FUNCTION_DELETE_ANNOTATIONS = "deleteAnnotations";
@@ -342,9 +352,16 @@ public class PluginUtils {
     public static final String FUNCTION_GET_SAVED_SIGNATURES = "getSavedSignatures";
     public static final String FUNCTION_GET_SAVED_SIGNATURE_FOLDER = "getSavedSignatureFolder";
     public static final String FUNCTION_GET_SAVED_SIGNATURE_JPG_FOLDER = "getSavedSignatureJpgFolder";
+    public static final String FUNCTION_SET_BACKGROUND_COLOR = "setBackgroundColor";
+    public static final String FUNCTION_SET_DEFAULT_PAGE_COLOR = "setDefaultPageColor";
+    public static final String FUNCTION_GET_SCROLL_POS = "getScrollPos";
+    public static final String FUNCTION_SET_HORIZONTAL_SCROLL_POSITION = "setHorizontalScrollPosition";
+    public static final String FUNCTION_SET_VERTICAL_SCROLL_POSITION = "setVerticalScrollPosition";
     public static final String FUNCTION_GET_VISIBLE_PAGES = "getVisiblePages";
 
     // Hygen Generated Method Constants
+    public static final String FUNCTION_SET_LAYOUT_MODE = "setLayoutMode";
+    public static final String FUNCTION_SET_FIT_MODE = "setFitMode";
     public static final String FUNCTION_GET_ANNOTATIONS_ON_PAGE = "getAnnotationsOnPage";
 
     public static final String BUTTON_TOOLS = "toolsButton";
@@ -451,10 +468,10 @@ public class PluginUtils {
 
     private static final String LAYOUT_MODE_SINGLE = "Single";
     private static final String LAYOUT_MODE_CONTINUOUS = "Continuous";
-    private static final String LAYOUT_MODE_FACING = "facing";
-    private static final String LAYOUT_MODE_FACING_CONTINUOUS = "facingContinuous";
-    private static final String LAYOUT_MODE_FACING_OVER = "facingOver";
-    private static final String LAYOUT_MODE_FACING_OVER_CONTINUOUS = "facingOverContinuous";
+    private static final String LAYOUT_MODE_FACING = "Facing";
+    private static final String LAYOUT_MODE_FACING_CONTINUOUS = "FacingContinuous";
+    private static final String LAYOUT_MODE_FACING_OVER = "FacingOver";
+    private static final String LAYOUT_MODE_FACING_OVER_CONTINUOUS = "FacingOverContinuous";
 
     private static final String FIT_MODE_FIT_PAGE = "FitPage";
     private static final String FIT_MODE_FIT_WIDTH = "FitWidth";
@@ -560,6 +577,11 @@ public class PluginUtils {
     public static final String TOOLBAR_KEY_ICON = "icon";
     public static final String TOOLBAR_KEY_ITEMS = "items";
 
+    // Custom toolbar items
+    public static final String TOOLBAR_ITEM_KEY_ID = "id";
+    public static final String TOOLBAR_ITEM_KEY_NAME = "name";
+    public static final String TOOLBAR_ITEM_KEY_ICON = "icon";
+
     // View Mode
     public static final String VIEW_MODE_CROP = "viewModeCrop";
     public static final String VIEW_MODE_ROTATION = "viewModeRotation";
@@ -582,6 +604,10 @@ public class PluginUtils {
     // Annotation Manager Undo Mode
     public static final String ANNOTATION_MANAGER_UNDO_MODE_OWN = "undoModeOwn";
     public static final String ANNOTATION_MANAGER_UNDO_MODE_ALL = "undoModeAll";
+
+    // Scroll direction
+    public static final String SCROLL_HORIZONTAL = "horizontal";
+    public static final String SCROLL_VERTICAL = "vertical";
 
     // Navigation List visibility
     public static boolean isBookmarkListVisible = true;
@@ -616,6 +642,7 @@ public class PluginUtils {
         private String tabTitle;
         private String openUrlPath;
         private String exportPath;
+        private ArrayList<String> appNavRightBarItems;
 
         public ConfigInfo() {
             this.initialPageNumber = -1;
@@ -667,6 +694,10 @@ public class PluginUtils {
 
         public void setLongPressMenuItems(ArrayList<String> longPressMenuItems) {
             this.longPressMenuItems = longPressMenuItems;
+        }
+
+        public void setTopAppNavBarRightBar(ArrayList<String> rightBarItems) {
+            this.appNavRightBarItems = rightBarItems;
         }
 
         public void setLongPressMenuOverrideItems(ArrayList<String> longPressMenuOverrideItems) {
@@ -807,6 +838,10 @@ public class PluginUtils {
 
         public String getOpenUrlPath() {
             return openUrlPath;
+        }
+
+        public ArrayList<String> getAppNavRightBarItems() {
+            return appNavRightBarItems;
         }
     }
 
@@ -1128,7 +1163,7 @@ public class PluginUtils {
                 if (!configJson.isNull(KEY_CONFIG_MAX_TAB_COUNT)) {
                     int maxTabCount = configJson.getInt(KEY_CONFIG_MAX_TAB_COUNT);
                     builder.maximumTabCount(maxTabCount);
-                } 
+                }
                 if (!configJson.isNull(KEY_CONFIG_OPEN_URL_PATH)) {
                     String openUrlPath = configJson.getString(KEY_CONFIG_OPEN_URL_PATH);
                     configInfo.setOpenUrlPath(openUrlPath);
@@ -1245,7 +1280,15 @@ public class PluginUtils {
                     PdfViewCtrlSettingsManager.setFullScreenMode(context, false);
                     builder.fullscreenModeEnabled(false);
                 }
+                if (!configJson.isNull(KEY_CONFIG_TOP_APP_NAV_BAR_RIGHT_BAR)) {
+                    JSONArray array = configJson.getJSONArray(KEY_CONFIG_TOP_APP_NAV_BAR_RIGHT_BAR);
+                    ArrayList<String> navBarRightBarItems = convertJSONArrayToArrayList(array);
+                    configInfo.setTopAppNavBarRightBar(navBarRightBarItems);
+                }
                 // Hygen Generated Configs
+                if (!configJson.isNull(KEY_CONFIG_MAX_SIGNATURE_COUNT)) {
+                    SignatureDialogFragment.MAX_SIGNATURES = configJson.getInt(KEY_CONFIG_MAX_SIGNATURE_COUNT);
+                }
             } catch (Exception ex) {
                 ex.printStackTrace();
             }
@@ -1654,6 +1697,24 @@ public class PluginUtils {
             layoutMode = PdfViewCtrlSettingsManager.KEY_PREF_VIEWMODE_FACINGCOVER_CONT_VALUE;
         }
         return layoutMode;
+    }
+
+    private static PDFViewCtrl.PagePresentationMode convStringToPagePresentationMode(String pagePresentationString) {
+        PDFViewCtrl.PagePresentationMode mode = null;
+        if (LAYOUT_MODE_SINGLE.equals(pagePresentationString)) {
+            mode = PDFViewCtrl.PagePresentationMode.SINGLE;
+        } else if (LAYOUT_MODE_CONTINUOUS.equals(pagePresentationString)) {
+            mode = PDFViewCtrl.PagePresentationMode.SINGLE_CONT;
+        } else if (LAYOUT_MODE_FACING.equals(pagePresentationString)) {
+            mode = PDFViewCtrl.PagePresentationMode.FACING;
+        } else if (LAYOUT_MODE_FACING_CONTINUOUS.equals(pagePresentationString)) {
+            mode = PDFViewCtrl.PagePresentationMode.FACING_CONT;
+        } else if (LAYOUT_MODE_FACING_OVER.equals(pagePresentationString)) {
+            mode = PDFViewCtrl.PagePresentationMode.FACING_COVER;
+        } else if (LAYOUT_MODE_FACING_OVER_CONTINUOUS.equals(pagePresentationString)) {
+            mode = PDFViewCtrl.PagePresentationMode.FACING_COVER_CONT;
+        }
+        return mode;
     }
 
     private static PDFViewCtrl.PageViewMode convStringToFitMode(String fitString) {
@@ -2115,12 +2176,22 @@ public class PluginUtils {
                 checkFunctionPrecondition(component);
                 String xfdf = call.argument(KEY_XFDF);
                 try {
-                    importAnnotations(xfdf, result, component);
+                    importAnnotations(xfdf, true, result, component);
                 } catch (PDFNetException ex) {
                     ex.printStackTrace();
                     result.error(Long.toString(ex.getErrorCode()), "PDFTronException Error: " + ex, null);
                 }
                 break;
+            }
+            case FUNCTION_MERGE_ANNOTATIONS: {
+                checkFunctionPrecondition(component);
+                String xfdf = call.argument(KEY_XFDF);
+                try {
+                    importAnnotations(xfdf, false, result, component);
+                } catch (PDFNetException ex) {
+                    ex.printStackTrace();
+                    result.error(Long.toString(ex.getErrorCode()), "PDFTronException Error: " + ex, null);
+                }
             }
             case FUNCTION_EXPORT_ANNOTATIONS: {
                 checkFunctionPrecondition(component);
@@ -2573,6 +2644,46 @@ public class PluginUtils {
                 }
                 break;
             }
+            case FUNCTION_SET_BACKGROUND_COLOR: {
+                checkFunctionPrecondition(component);
+                try {
+                    setBackgroundColor(call, result, component);
+                } catch (PDFNetException ex) {
+                    ex.printStackTrace();
+                    result.error(Long.toString(ex.getErrorCode()), "PDFTronException Error: " + ex, null);
+                }
+                break;
+            }
+            case FUNCTION_SET_DEFAULT_PAGE_COLOR: {
+                checkFunctionPrecondition(component);
+                try {
+                    setDefaultPageColor(call, result, component);
+                } catch (PDFNetException ex) {
+                    ex.printStackTrace();
+                    result.error(Long.toString(ex.getErrorCode()), "PDFTronException Error: " + ex, null);
+                }
+                break;
+            }
+            case FUNCTION_GET_SCROLL_POS: {
+                checkFunctionPrecondition(component);
+                try {
+                    getScrollPos(result, component);
+                } catch (JSONException ex) {
+                    ex.printStackTrace();
+                    result.error(Integer.toString(ex.hashCode()), "JSONException Error: " + ex, null);
+                }
+                break;
+            }
+            case FUNCTION_SET_HORIZONTAL_SCROLL_POSITION: {
+                checkFunctionPrecondition(component);
+                setHorizontalScrollPosition(call, result, component);
+                break;
+            }
+            case FUNCTION_SET_VERTICAL_SCROLL_POSITION: {
+                checkFunctionPrecondition(component);
+                setVerticalScrollPosition(call, result, component);
+                break;
+            }
             case FUNCTION_SMART_ZOOM: {
                 checkFunctionPrecondition(component);
                 smartZoom(call, result, component);
@@ -2584,6 +2695,16 @@ public class PluginUtils {
                 break;
             }
             // Hygen Generated Method Cases
+            case FUNCTION_SET_LAYOUT_MODE: {
+                checkFunctionPrecondition(component);
+                setLayoutMode(call, result, component);
+                break;
+            }
+            case FUNCTION_SET_FIT_MODE: {
+                checkFunctionPrecondition(component);
+                setFitMode(call, result, component);
+                break;
+            }
             case FUNCTION_GET_ANNOTATIONS_ON_PAGE: {
                 checkFunctionPrecondition(component);
                 getAnnotationsOnPage(call, result, component);
@@ -2746,7 +2867,7 @@ public class PluginUtils {
         }
     }
 
-    private static void importAnnotations(String xfdf, MethodChannel.Result result, ViewerComponent component) throws PDFNetException {
+    private static void importAnnotations(String xfdf, boolean replace, MethodChannel.Result result, ViewerComponent component) throws PDFNetException {
         PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
         PDFDoc pdfDoc = component.getPdfDoc();
         if (null == pdfViewCtrl || null == pdfDoc || null == xfdf) {
@@ -2776,7 +2897,11 @@ public class PluginUtils {
 
             FDFDoc fdfDoc = FDFDoc.createFromXFDF(xfdf);
 
-            pdfDoc.fdfUpdate(fdfDoc);
+            if (replace) {
+                pdfDoc.fdfUpdate(fdfDoc);
+            } else {
+                pdfDoc.fdfMerge(fdfDoc);
+            }
             pdfDoc.refreshAnnotAppearances();
             pdfViewCtrl.update(true);
 
@@ -3146,7 +3271,7 @@ public class PluginUtils {
         double zoom = pdfViewCtrl.getZoom();
         result.success(zoom);
     }
-    
+
     private static void getSavedSignatures(MethodChannel.Result result, @NonNull ViewerComponent component) {
         List<String> signatures = new ArrayList<String>();
         PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
@@ -3455,10 +3580,10 @@ public class PluginUtils {
     private static void saveDocument(MethodChannel.Result result, ViewerComponent component) {
         PdfViewCtrlTabFragment2 pdfViewCtrlTabFragment = component.getPdfViewCtrlTabFragment();
         if (pdfViewCtrlTabFragment != null) {
-            pdfViewCtrlTabFragment.setSavingEnabled(component.isAutoSaveEnabled());
+            pdfViewCtrlTabFragment.setSavingEnabled(true);
             pdfViewCtrlTabFragment.save(false, true, true);
+            pdfViewCtrlTabFragment.setSavingEnabled(component.isAutoSaveEnabled());
 
-            // TODO if add auto save flag: getPdfViewCtrlTabFragment().setSavingEnabled(mAutoSaveEnabled);
             if (component.isBase64()) {
                 try {
                     byte[] data = FileUtils.readFileToByteArray(pdfViewCtrlTabFragment.getFile());
@@ -3907,6 +4032,77 @@ public class PluginUtils {
         }
     }
 
+    private static void setBackgroundColor(MethodCall call, MethodChannel.Result result, ViewerComponent component) throws PDFNetException {
+        PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
+
+        if (pdfViewCtrl == null) {
+            result.error("InvalidState", "PDFViewCtrl not found", null);
+            return;
+        }
+
+        int red = call.argument(KEY_RED);
+        int green = call.argument(KEY_GREEN);
+        int blue = call.argument(KEY_BLUE);
+        pdfViewCtrl.setClientBackgroundColor(red, green, blue, false);
+        result.success(null);
+    }
+
+    private static void setDefaultPageColor(MethodCall call, MethodChannel.Result result, ViewerComponent component) throws PDFNetException {
+        PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
+
+        if (pdfViewCtrl == null) {
+            result.error("InvalidState", "PDFViewCtrl not found", null);
+            return;
+        }
+
+        int red = call.argument(KEY_RED);
+        int green = call.argument(KEY_GREEN);
+        int blue = call.argument(KEY_BLUE);
+        pdfViewCtrl.setDefaultPageColor(red, green, blue);
+        result.success(null);
+    }
+
+    private static void getScrollPos(MethodChannel.Result result, ViewerComponent component) throws JSONException {
+        PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
+        JSONObject jsonObject = new JSONObject();
+
+        if (pdfViewCtrl == null) {
+            result.error("InvalidState", "PDFViewCtrl not found", null);
+            return;
+        }
+
+        jsonObject.put(SCROLL_HORIZONTAL, pdfViewCtrl.getHScrollPos());
+        jsonObject.put(SCROLL_VERTICAL, pdfViewCtrl.getVScrollPos());
+
+        result.success(jsonObject.toString());
+    }
+
+    private static void setHorizontalScrollPosition(MethodCall call, MethodChannel.Result result, ViewerComponent component) {
+        PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
+        int horizontalScrollPosition = call.argument(KEY_HORIZONTAL_SCROLL_POSITION);
+
+        if (pdfViewCtrl == null) {
+            result.error("InvalidState", "PDFViewCtrl not found", null);
+            return;
+        }
+
+        pdfViewCtrl.setHScrollPos(horizontalScrollPosition);
+        result.success(null);
+    }
+
+    private static void setVerticalScrollPosition(MethodCall call, MethodChannel.Result result, ViewerComponent component) {
+        PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
+        int verticalScrollPosition = call.argument(KEY_VERTICAL_SCROLL_POSITION);
+
+        if (pdfViewCtrl == null) {
+            result.error("InvalidState", "PDFViewCtrl not found", null);
+            return;
+        }
+
+        pdfViewCtrl.setVScrollPos(verticalScrollPosition);
+        result.success(null);
+    }
+
     public static void startSearchMode(MethodCall call, MethodChannel.Result result, ViewerComponent component) throws JSONException {
         PdfViewCtrlTabFragment2 pdfViewCtrlTabFragment = component.getPdfViewCtrlTabFragment();
         String searchString = call.argument(KEY_SEARCH_STRING);
@@ -3941,6 +4137,7 @@ public class PluginUtils {
             result.error("InvalidState", "PDFViewCtrl not found", null);
             return;
         }
+
         double zoom = call.argument(KEY_ZOOM);
         int x = call.argument(KEY_X);
         int y = call.argument(KEY_Y);
@@ -3954,6 +4151,7 @@ public class PluginUtils {
             result.error("InvalidState", "PDFViewCtrl not found", null);
             return;
         }
+
         try {
             int pageNumber = call.argument(KEY_PAGE_NUMBER);
             double x1 = call.argument(KEY_X1);
@@ -3967,7 +4165,6 @@ public class PluginUtils {
             ex.printStackTrace();
             result.error(Long.toString(ex.getErrorCode()), "PDFTronException Error: " + ex, null);
         }
-
     }
 
     private static void getVisiblePages(MethodChannel.Result result, ViewerComponent component) {
@@ -3981,6 +4178,31 @@ public class PluginUtils {
     }
 
     // Hygen Generated Methods
+    public static void setLayoutMode(MethodCall call, MethodChannel.Result result, ViewerComponent component) {
+        PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
+        String layoutString = call.argument(KEY_LAYOUT_MODE);
+
+        if (pdfViewCtrl == null) {
+            result.error("InvalidState", "PDFViewCtrl not found", null);
+            return;
+        }
+
+        pdfViewCtrl.setPagePresentationMode(convStringToPagePresentationMode(layoutString));
+        result.success(null);
+    }
+
+    public static void setFitMode(MethodCall call, MethodChannel.Result result, ViewerComponent component) {
+        PDFViewCtrl pdfViewCtrl = component.getPdfViewCtrl();
+        String fitString = call.argument(KEY_FIT_MODE);
+
+        if (pdfViewCtrl == null) {
+            result.error("InvalidState", "PDFViewCtrl not found", null);
+            return;
+        }
+        pdfViewCtrl.setPageViewMode(convStringToFitMode(fitString));
+        result.success(null);
+    }
+
     public static void getAnnotationsOnPage(MethodCall call, MethodChannel.Result result, ViewerComponent component) {
         int pageNumber = call.argument(KEY_PAGE_NUMBER);
 
@@ -4067,6 +4289,7 @@ public class PluginUtils {
                         }
                     });
         }
+        handleCustomAppBarButton(component);
     }
 
     public static boolean handleOpenDocError(ViewerComponent component) {
@@ -4086,6 +4309,12 @@ public class PluginUtils {
         }
 
         return false;
+    }
+    public static void handleOnConfigurationChanged(ViewerComponent component) {
+        if (component == null) {
+            return;
+        }
+        handleCustomAppBarButton(component);
     }
 
     public static void handleOnDetach(ViewerComponent component) {
@@ -4138,6 +4367,60 @@ public class PluginUtils {
         if (itemKey != null && annotationCustomToolbarItemPressedEventSink != null) {
             // this is a custom button
             annotationCustomToolbarItemPressedEventSink.success(itemId);
+        }
+    }
+
+    public static void handleAppBarButtonPressed(ViewerComponent component, MenuItem item) {
+        if (component == null) {
+            return;
+        }
+        EventChannel.EventSink appBarButtonPressedEventSink = component.getAppBarButtonPressedEventEmitter();
+        int itemId = item.getItemId();
+        if (appBarButtonPressedEventSink != null) {
+            appBarButtonPressedEventSink.success(itemId);
+        }
+    }
+
+    private static void handleCustomAppBarButton(ViewerComponent component) {
+        if (component.getAppNavRightBarItems() != null) {
+            PdfViewCtrlTabHostFragment2 hostFragment = component.getPdfViewCtrlTabHostFragment();
+            if (hostFragment != null) {
+                androidx.appcompat.widget.Toolbar toolbar = hostFragment.getToolbar();
+                if (toolbar != null) {
+                    toolbar.getMenu().clear();
+
+                    try {
+                        for (int i = 0; i < component.getAppNavRightBarItems().size(); i++) {
+                            String object = component.getAppNavRightBarItems().get(i);
+
+                            int itemId = 0;
+                            String itemName = null, itemIcon = null;
+                            JSONObject item = new JSONObject(object);
+                            if (!item.isNull(TOOLBAR_ITEM_KEY_ID)) {
+                                itemId = item.getInt(TOOLBAR_ITEM_KEY_ID);
+                            }
+                            if (!item.isNull(TOOLBAR_ITEM_KEY_NAME)) {
+                                itemName = item.getString(TOOLBAR_ITEM_KEY_NAME);
+                            }
+                            if (!item.isNull(TOOLBAR_ITEM_KEY_ICON)) {
+                                itemIcon = item.getString(TOOLBAR_ITEM_KEY_ICON);
+                            }
+
+                            if (itemId != 0 && itemName != null && !Utils.isNullOrEmpty(itemIcon)) {
+                                int res = Utils.getResourceDrawable(toolbar.getContext(), itemIcon);
+                                Menu navBarMenu = toolbar.getMenu();
+                                if (navBarMenu != null) {
+                                    navBarMenu.add(Menu.NONE, itemId, Menu.NONE, itemName)
+                                            .setIcon(res)
+                                            .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+                                }
+                            }
+                        }
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
         }
     }
 
