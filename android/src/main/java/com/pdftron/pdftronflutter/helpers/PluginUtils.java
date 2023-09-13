@@ -1,4 +1,4 @@
-package com.pdftron.pdftronflutter.helpers;
+package android.src.main.java.com.pdftron.pdftronflutter.helpers;
 
 import android.content.ContentResolver;
 import android.content.Context;
