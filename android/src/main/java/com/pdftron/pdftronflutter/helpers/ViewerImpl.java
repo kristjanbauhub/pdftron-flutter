@@ -176,7 +176,6 @@ public class ViewerImpl {
     };
 
     private ToolManager.PdfDocModificationListener mPdfDocModificationListener = new ToolManager.PdfDocModificationListener() {
-
         @Override
         public void onBookmarkModified(@NonNull List<UserBookmarkItem> bookmarkItems) {
             String bookmarkJson = null;
@@ -226,6 +225,11 @@ public class ViewerImpl {
 
                 eventSink.success(resultObject.toString());
             }
+        }
+
+        @Override
+        public void onPagesMoved(List<Integer> pagesMoved, int to, int currentPage) {
+
         }
 
         @Override
@@ -439,6 +443,4 @@ public class ViewerImpl {
             }
         }
     };
-
-    // Hygen Generated Event Listeners
 }
