@@ -33,9 +33,6 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
 
-    lintOptions {
-        disable 'InvalidPackage'
-    }
 
     defaultConfig {
         applicationId "com.pdftron.pdftronflutterexample"
@@ -53,6 +50,10 @@ android {
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig signingConfigs.debug
         }
+    }
+    namespace 'com.pdftron.pdftronflutterexample'
+    lint {
+        disable 'InvalidPackage'
     }
 }
 
