@@ -173,7 +173,7 @@ class _ViewerState extends State<Viewer> {
     if (enableWidget) {
       // If using Android Widget, uncomment one of the following:
       // If using Flutter v2.3.0-17.0.pre or earlier.
-      SystemChrome.setEnabledSystemUIOverlays(SystemUiOverlay.values);
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
       // If using later Flutter versions.
       // SystemChrome.setEnabledSystemUIMode(
       //   SystemUiMode.edgeToEdge,
