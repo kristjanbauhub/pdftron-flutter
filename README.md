@@ -8,7 +8,7 @@ PDFTron's Flutter PDF library brings smooth, flexible, and stand-alone document 
 - Night mode to improve viewing in low-light environments
 - And much more...
 
-More information can be found at https://www.pdftron.com/documentation/guides/flutter
+More information can be found at https://docs.apryse.com/documentation/guides/flutter/
 
 **Android**|**iOS**
 :--:|:--:
@@ -36,7 +36,7 @@ More information can be found at https://www.pdftron.com/documentation/guides/fl
 Dart now supports [sound null safety](https://dart.dev/null-safety), which is available starting from Dart 2.12.0 and Flutter 2.0.0. Here is a guide to migrate to [null safety](https://dart.dev/null-safety/migration-guide)
 
 If you would like to use our null safe SDK, it is available in the following places:
-- [GitHub](https://github.com/PDFTron/pdftron-flutter)
+- [GitHub](https://github.com/ApryseSDK/pdftron-flutter)
 - [pub.dev](https://pub.dev/packages/pdftron_flutter)
 
 The rest of this README.md contains documentation, installation instructions, and information for the null safe version of our SDK.
@@ -45,7 +45,7 @@ The rest of this README.md contains documentation, installation instructions, an
 
 Version `0.0.6` is the last stable release for the legacy UI.
 
-The release can be found here: https://github.com/PDFTron/pdftron-flutter/releases/tag/legacy-ui.
+The release can be found here: https://github.com/ApryseSDK/pdftron-flutter/releases/tag/legacy-ui.
 
 ## Installation
 
@@ -67,7 +67,7 @@ The release can be found here: https://github.com/PDFTron/pdftron-flutter/releas
           sdk: flutter
     +   pdftron_flutter:
     +     git:
-    +       url: git://github.com/PDFTron/pdftron-flutter.git
+    +       url: git://github.com/ApryseSDK/pdftron-flutter.git
     ```
 
 3. In the `myapp` directory, run `flutter packages get`.
@@ -143,6 +143,15 @@ The following instructions are only applicable to Android development; click her
 
 The following instructions are only applicable to iOS development; click here for the [Android counterpart](#android).
 
+> **Note**
+> (August 2022) 
+>
+> There are new podspec files to use when integrating the PDFTron Flutter Wrapper for iOS:
+> - `PDFTron` CocoaPod, providing `PDFNet.xcframework`: https://pdftron.com/downloads/ios/flutter/pdftron/latest.podspec
+> - `PDFTronTools` CocoaPod, providing `Tools.xcframework`: https://pdftron.com/downloads/ios/flutter/pdftron-tools/latest.podspec
+>
+> Please update your `ios/Podfile` accordingly.
+
 4. Open `myapp/ios/Podfile` file and add:
 	```diff
 	  # Uncomment this line to define a global platform for your project
@@ -152,7 +161,8 @@ The following instructions are only applicable to iOS development; click here fo
 	  target 'Runner' do
 	    ...
 	+   # PDFTron Pods
-	+   pod 'PDFNet', podspec: 'https://www.pdftron.com/downloads/ios/cocoapods/xcframeworks/pdfnet/latest.podspec'
+	+   pod 'PDFTron', podspec: 'https://pdftron.com/downloads/ios/flutter/pdftron/latest.podspec'
+	+   pod 'PDFTronTools', podspec: 'https://pdftron.com/downloads/ios/flutter/pdftron-tools/latest.podspec'
 	  end
 	```
 5. To ensure integration process is successful, run `flutter build ios --no-codesign` 
@@ -198,7 +208,7 @@ return Scaffold(
 1. If you want to use local files on Android, add the following dependency to `myapp/pubspec.yaml`:
 
   ```yaml
-    permission_handler: ^8.1.1
+    permission_handler: ^11.3.1
   ```
 
 2. Open `lib/main.dart`, replace the entire file with the following:
@@ -423,11 +433,11 @@ return Scaffold(
   ```
 
 ## Changelog
-See [Changelog](https://github.com/PDFTron/pdftron-flutter/blob/publish-prep-nullsafe/CHANGELOG.md)
+See [Changelog](https://github.com/ApryseSDK/pdftron-flutter/blob/publish-prep-nullsafe/CHANGELOG.md)
 
 ## Contributing
-See [Contributing](https://github.com/PDFTron/pdftron-flutter/blob/publish-prep-nullsafe/CONTRIBUTING.md)
+See [Contributing](https://github.com/ApryseSDK/pdftron-flutter/blob/publish-prep-nullsafe/CONTRIBUTING.md)
 
 ## License
-See [License](https://github.com/PDFTron/pdftron-flutter/blob/publish-prep-nullsafe/LICENSE)
+See [License](https://github.com/ApryseSDK/pdftron-flutter/blob/publish-prep-nullsafe/LICENSE)
 ![](https://onepixel.pdftron.com/pdftron-flutter)

@@ -21,8 +21,9 @@
 @property (nonatomic, strong) FlutterEventSink zoomChangedEventSink;
 @property (nonatomic, strong) FlutterEventSink pageMovedEventSink;
 @property (nonatomic, strong) FlutterEventSink scrollChangedEventSink;
-
+@property (nonatomic, strong) FlutterEventSink annotationToolbarItemPressedEventSink;
 // Hygen Generated Event Listeners (1)
+@property (nonatomic, strong) FlutterEventSink appBarButtonPressedEventSink;
 
 @property (nonatomic, assign, getter=isWidgetView) BOOL widgetView;
 @property (nonatomic, assign, getter=isMultiTabSet) BOOL multiTabSet;
@@ -187,6 +188,14 @@
     [scrollChangedEventChannel setStreamHandler:self];
 
     // Hygen Generated Event Listeners (2)
+    FlutterEventChannel* annotationToolbarItemPressedEventChannel = [FlutterEventChannel eventChannelWithName:PTAnnotationToolbarItemPressedEventKey binaryMessenger:messenger];
+
+    [annotationToolbarItemPressedEventChannel setStreamHandler:self];
+    
+    FlutterEventChannel* appBarButtonPressedEventChannel = [FlutterEventChannel eventChannelWithName:PTAppBarButtonPressedEventKey binaryMessenger:messenger];
+
+    [appBarButtonPressedEventChannel setStreamHandler:self];
+
 }
 
 #pragma mark - Configurations
@@ -814,6 +823,14 @@
                     }
                 }
                 // Hygen Generated Configs
+                else if ([key isEqualToString:PTMaxSignatureCountKey])
+                {
+                    NSNumber* maxSignatureCount = [PdftronFlutterPlugin getConfigValue:configPairs configKey:PTMaxSignatureCountKey class:[NSNumber class] error:&error];
+
+                    if (!error && maxSignatureCount) {
+                        documentController.toolManager.signatureAnnotationOptions.maxSignatureCount = [maxSignatureCount intValue];
+                    }
+                }
                 else
                 {
                     NSLog(@"Unknown JSON key in config: %@.", key);
@@ -979,7 +996,7 @@
                 // TODO
             }
             else if ([string isEqualToString:PTAnnotationCreateLinkTextToolKey]) {
-                // TODO
+                toolManager.linkAnnotationOptions.canCreate = value;
             }
             else if ([string isEqualToString:PTFormCreateTextFieldToolKey]) {
                 // TODO
@@ -1004,6 +1021,9 @@
             }
             else if ([string isEqualToString:PTPencilKitDrawingToolKey]) {
                 toolManager.pencilDrawingAnnotationOptions.canCreate = value;
+            }
+            else if ([string isEqualToString:PTAnnotationSmartPenToolKey]) {
+                toolManager.smartPenEnabled = value;
             }
         }
     }
@@ -1255,6 +1275,12 @@
             self.scrollChangedEventSink = events;
             break;
         // Hygen Generated Event Listeners (3)
+        case annotationToolbarItemPressedId:
+            self.annotationToolbarItemPressedEventSink = events;
+            break;
+        case appBarButtonPressedId:
+            self.appBarButtonPressedEventSink = events;
+            break;
     }
     
     return Nil;
@@ -1312,6 +1338,12 @@
             self.scrollChangedEventSink = nil;
             break;
         // Hygen Generated Event Listeners (4)
+        case annotationToolbarItemPressedId:
+            self.annotationToolbarItemPressedEventSink = nil;
+            break;
+        case appBarButtonPressedId:
+            self.appBarButtonPressedEventSink = nil;
+            break;
     }
     
     return Nil;
@@ -1469,6 +1501,22 @@
 }
 
 // Hygen Generated Event Listeners (5)
+- (void)documentController:(PTDocumentController *)docVC annotationToolbarItemPressed:(NSString *)annotationToolbarItemPressedString
+{
+    
+    if (self.annotationToolbarItemPressedEventSink != nil)
+    {
+        self.annotationToolbarItemPressedEventSink(annotationToolbarItemPressedString);
+    }
+}
+- (void)documentController:(PTDocumentController *)docVC appBarButtonPressed:(NSString *)appBarButtonPressedString
+{
+    if (self.appBarButtonPressedEventSink != nil)
+    {
+        self.appBarButtonPressedEventSink(appBarButtonPressedString);
+    }
+}
+
 
 #pragma mark - Functions
 
@@ -1637,10 +1685,26 @@
         [self getSavedSignatures:result];
     } else if ([call.method isEqualToString:PTGetSavedSignatureFolderKey]) {
         [self getSavedSignatureFolder:result];
+    } else if ([call.method isEqualToString:PTSetBackgroundColorKey]) {
+        [self setBackgroundColor:result call:call];
+    } else if ([call.method isEqualToString:PTSetDefaultPageColorKey]) {
+        [self setDefaultPageColor:result call:call];
+    } else if ([call.method isEqualToString:PTGetScrollPosKey]) {
+        [self getScrollPos:result];
+    } else if ([call.method isEqualToString:PTSetHorizontalScrollPositionKey]) {
+        [self setHorizontalScrollPosition:call result:result];
+    } else if ([call.method isEqualToString:PTSetVerticalScrollPositionKey]) {
+        [self setVerticalScrollPosition:call result:result];
     } else if ([call.method isEqualToString:PTSmartZoomKey]) {
         [self smartZoom:result call:call];
     }
     // Hygen Generated Method Call Cases
+    else if ([call.method isEqualToString:PTSetLayoutModeKey]) {
+        [self setLayoutMode:result call:call];
+    }
+    else if ([call.method isEqualToString:PTSetFitModeKey]) {
+        [self setFitMode:result call:call];
+    }
     else if ([call.method isEqualToString:PTGetAnnotationsOnPageKey]) {
         [self getAnnotationsOnPage:result call:call];
     }
@@ -2957,6 +3021,10 @@
         // TODO
     } else if ([toolMode isEqualToString:PTPencilKitDrawingToolKey]) {
         toolClass = [PTPencilDrawingCreate class];
+    } else if ([toolMode isEqualToString:PTAnnotationSmartPenToolKey]) {
+        toolClass = [PTSmartPen class];
+    } else if ([toolMode isEqualToString:PTPanToolKey]) {
+        toolClass = [PTPanTool class];
     }
 
     if (toolClass) {
@@ -3400,6 +3468,69 @@
     flutterResult(nil);
 }
 
+-(void)setBackgroundColor:(FlutterResult)flutterResult call:(FlutterMethodCall*)call {
+    PTDocumentController *documentController = [self getDocumentController];
+    if(documentController == Nil)
+    {
+        // something is wrong, document view controller is not present
+        NSLog(@"Error: The document view controller is not initialized.");
+        flutterResult([FlutterError errorWithCode:@"set_background_color" message:@"Failed to set background color" details:@"Error: The document view controller is not initialized."]);
+        return;
+    }
+
+    PTPDFViewCtrl *pdfViewCtrl = documentController.pdfViewCtrl;
+        
+    [pdfViewCtrl
+     SetBackgroundColor:[call.arguments[PTRedKey] unsignedCharValue] g:[call.arguments[PTGreenKey] unsignedCharValue] b:[call.arguments[PTBlueKey] unsignedCharValue] a:255];
+    flutterResult(nil);
+}
+
+-(void)setDefaultPageColor:(FlutterResult)flutterResult call:(FlutterMethodCall*)call {
+    PTDocumentController *documentController = [self getDocumentController];
+    if(documentController == Nil)
+    {
+        // something is wrong, document view controller is not present
+        NSLog(@"Error: The document view controller is not initialized.");
+        flutterResult([FlutterError errorWithCode:@"set_default_page_color" message:@"Failed to set default page color" details:@"Error: The document view controller is not initialized."]);
+        return;
+    }
+
+    PTPDFViewCtrl *pdfViewCtrl = documentController.pdfViewCtrl;
+        
+    [pdfViewCtrl
+        SetDefaultPageColor:[call.arguments[PTRedKey] unsignedCharValue] g:[call.arguments[PTGreenKey] unsignedCharValue] b:[call.arguments[PTBlueKey] unsignedCharValue]];
+    [pdfViewCtrl Update:YES];
+
+    flutterResult(nil);
+}
+
+-(void)getScrollPos:(FlutterResult)flutterResult {
+    PTDocumentController *documentController = [self getDocumentController];
+
+    NSDictionary<NSString *, NSNumber *> * scrollPos = @{
+        PTScrollHorizontalKey: [[NSNumber alloc] initWithDouble:[documentController.pdfViewCtrl GetHScrollPos]],
+        PTScrollVerticalKey: [[NSNumber alloc] initWithDouble:[documentController.pdfViewCtrl GetVScrollPos]],
+    };
+    
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:scrollPos options:0 error:nil];
+    NSString *res = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    flutterResult(res);
+}
+
+-(void)setHorizontalScrollPosition:(FlutterMethodCall*)call result:(FlutterResult)flutterResult {
+    PTDocumentController *documentController = [self getDocumentController];
+    double horizontalScrollPos = [call.arguments[PTHorizontalScrollPositionArgumentKey] doubleValue];
+    [documentController.pdfViewCtrl SetHScrollPos:horizontalScrollPos];
+    flutterResult(nil);
+}
+
+-(void)setVerticalScrollPosition:(FlutterMethodCall*)call result:(FlutterResult)flutterResult {
+    PTDocumentController *documentController = [self getDocumentController];
+    double verticalScrollPos = [call.arguments[PTVerticalScrollPositionArgumentKey] doubleValue];
+    [documentController.pdfViewCtrl SetVScrollPos:verticalScrollPos];
+    flutterResult(nil);
+}
+
 -(void)zoomWithCenter:(FlutterResult)flutterResult call:(FlutterMethodCall*)call {
     PTDocumentController *documentController = [self getDocumentController];
     double zoom = [call.arguments[PTZoomRatioKey] doubleValue];
@@ -3425,6 +3556,81 @@
 }
 
 // Hygen Generated Methods
+- (void)setLayoutMode:(FlutterResult)flutterResult call:(FlutterMethodCall*)call
+{
+    PTDocumentController *documentController = [self getDocumentController];
+    PTPDFViewCtrl *pdfViewCtrl = documentController.pdfViewCtrl;
+    NSString* layoutMode = [PdftronFlutterPlugin PT_idAsNSString:call.arguments[PTLayoutModeArgumentKey]];
+    
+    if(documentController == Nil)
+    {
+        // something is wrong, document view controller is not present
+        NSLog(@"Error: The document view controller is not initialized.");
+        flutterResult([FlutterError errorWithCode:@"set_layout_mode" message:@"Failed to set page presentation mode" details:@"Error: The document view controller is not initialized."]);
+        return;
+    }
+    
+    if ([layoutMode isEqualToString:PTSingleKey]) {
+        [pdfViewCtrl SetPagePresentationMode:e_trn_single_page];
+    }
+    else if ([layoutMode isEqualToString:PTContinuousKey]) {
+        [pdfViewCtrl SetPagePresentationMode:e_trn_single_continuous];
+    }
+    else if ([layoutMode isEqualToString:PTFacingKey]) {
+        [pdfViewCtrl SetPagePresentationMode:e_trn_facing];
+    }
+    else if ([layoutMode isEqualToString:PTFacingContinuousKey]) {
+        [pdfViewCtrl SetPagePresentationMode:e_trn_facing_continuous];
+    }
+    else if ([layoutMode isEqualToString:PTFacingCoverKey]) {
+        [pdfViewCtrl SetPagePresentationMode:e_trn_facing_cover];
+    }
+    else if ([layoutMode isEqualToString:PTFacingCoverContinuousKey]) {
+        [pdfViewCtrl SetPagePresentationMode:e_trn_facing_continuous_cover];
+    }
+    [pdfViewCtrl Update:YES];
+    flutterResult(nil);
+}
+
+- (void)setFitMode:(FlutterResult)flutterResult call:(FlutterMethodCall*)call
+{
+    PTDocumentController *documentController = [self getDocumentController];
+    PTPDFViewCtrl *pdfViewCtrl = documentController.pdfViewCtrl;
+    NSString* fitMode = [PdftronFlutterPlugin PT_idAsNSString:call.arguments[PTFitModeArgumentKey]];
+    
+    if(documentController == Nil)
+    {
+        // something is wrong, document view controller is not present
+        NSLog(@"Error: The document view controller is not initialized.");
+        flutterResult([FlutterError errorWithCode:@"set_fit_mode" message:@"Failed to set page view mode" details:@"Error: The document view controller is not initialized."]);
+        return;
+    }
+    
+    if (!fitMode) {
+        return;
+    }
+    
+    if ([fitMode isEqualToString:PTFitPageKey]) {
+        [pdfViewCtrl SetPageViewMode:e_trn_fit_page];
+        [pdfViewCtrl SetPageRefViewMode:e_trn_fit_page];
+    }
+    else if ([fitMode isEqualToString:PTFitWidthKey]) {
+        [pdfViewCtrl SetPageViewMode:e_trn_fit_width];
+        [pdfViewCtrl SetPageRefViewMode:e_trn_fit_width];
+    }
+    else if ([fitMode isEqualToString:PTFitHeightKey]) {
+        [pdfViewCtrl SetPageViewMode:e_trn_fit_height];
+        [pdfViewCtrl SetPageRefViewMode:e_trn_fit_height];
+    }
+    else if ([fitMode isEqualToString:PTZoomKey]) {
+        [pdfViewCtrl SetPageViewMode:e_trn_zoom];
+        [pdfViewCtrl SetPageRefViewMode:e_trn_zoom];
+    }
+    
+    [pdfViewCtrl Update:YES];
+    flutterResult(nil);
+}
+
 - (void)getAnnotationsOnPage:(FlutterResult)result call:(FlutterMethodCall*)call
 {
     PTDocumentController *documentController = [self getDocumentController];
@@ -3606,6 +3812,18 @@
     }
     else if ([key isEqualToString:PTAnnotationCreateFreeHighlighterToolKey]) {
         return [PTFreeHandHighlightCreate class];
+    }
+    else if ([key isEqualToString:PTEraserToolKey]) {
+        return [PTEraser class];
+    }
+    else if ([key isEqualToString:PTPanToolKey]) {
+        return [PTPanTool class];
+    }
+    else if ([key isEqualToString:PTAnnotationSmartPenToolKey]) {
+        return [PTSmartPen class];
+    }
+    else if ([key isEqualToString:PTPencilKitDrawingToolKey]) {
+        return [PTPencilDrawingCreate class];
     }
 
     return Nil;
