@@ -63,6 +63,7 @@ import com.pdftron.pdftronflutter.R;
 import com.pdftron.pdftronflutter.bauhub.BauhubTaskTool;
 import com.pdftron.pdftronflutter.bauhub.BauhubPlusIconTool;
 import com.pdftron.sdf.Obj;
+import com.pdftron.pdf.tools.R;
 import com.pdftron.pdf.PDFDraw;
 
 import org.apache.commons.io.FileUtils;
