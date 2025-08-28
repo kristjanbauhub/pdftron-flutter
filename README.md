@@ -80,45 +80,38 @@ The following instructions are only applicable to Android development; click her
 	```diff
 	defaultConfig {
 	    applicationId "com.example.myapp"
-	-   minSdkVersion flutter.minSdkVersion
-	+   minSdkVersion 21
-	+   multiDexEnabled true
-	+   manifestPlaceholders += [pdftronLicenseKey:PDFTRON_LICENSE_KEY]
 	    targetSdkVersion flutter.targetSdkVersion
 	    versionCode flutterVersionCode.toInteger()
 	    versionName flutterVersionName
+
+	+   resValue("string", "PDFTRON_LICENSE_KEY", "\"LICENSE_KEY_GOES_HERE\"")
 	}
 	```
-
-5. In your `myapp/android/gradle.properties` file, add the following line:
-    ``` diff
-    # Add the PDFTRON_LICENSE_KEY variable here. 
-    # For trial purposes leave it blank.
-    # For production add a valid commercial license key.
-    PDFTRON_LICENSE_KEY=
-    ```
     
-6. In your `myapp/android/app/src/main/AndroidManifest.xml` file, add the following lines:
+5. In your `myapp/android/app/src/main/AndroidManifest.xml` file, add the following lines:
 	```diff
 	<manifest xmlns:android="http://schemas.android.com/apk/res/android"
       package="com.example.myapp">
  
+	  <!-- Required if you want to work with online documents -->
 	+ <uses-permission android:name="android.permission.INTERNET" />
-	  <!-- Required to read and write documents from device storage -->
-	+ <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 	  <!-- Required if you want to record audio annotations -->
 	+ <uses-permission android:name="android.permission.RECORD_AUDIO" />
  
 	  <application
 	    ...
-	+   android:largeHeap="true"
-	+   android:usesCleartextTraffic="true">
+	+   android:largeHeap="true">
 	
 	    <!-- Add license key in meta-data tag here. This should be inside the application tag. -->
 	+   <meta-data
 	+     android:name="pdftron_license_key"
-	+     android:value="${pdftronLicenseKey}"/>
+	+     android:value="@string/PDFTRON_LICENSE_KEY" />
 	    ...
+      <activity
+	      ...
+	-     android:windowSoftInputMode="adjustResize"
+	+     android:windowSoftInputMode="adjustPan">
+      </activity>
 	```
 
     If you are using the `DocumentView` widget, change the parent class of your `MainActivity` file (either Kotlin or Java) to `FlutterFragmentActivity`:
@@ -135,22 +128,20 @@ The following instructions are only applicable to Android development; click her
     }
     ```
 
-7. Follow the instructions outlined [in the Usage section](#usage).
-8. Check that your Android device is running by running the command `flutter devices`. If none are available, follow the device set up instructions in the [Install](https://flutter.io/docs/get-started/install) guides for your platform.
-9. Run the app with the command `flutter run`.
+6. Follow the instructions outlined [in the Usage section](#usage).
+7. Check that your Android device is running by running the command `flutter devices`. If none are available, follow the device set up instructions in the [Install](https://flutter.io/docs/get-started/install) guides for your platform.
+8. Run the app with the command `flutter run`.
 
 ### iOS
 
 The following instructions are only applicable to iOS development; click here for the [Android counterpart](#android).
 
-> **Note**
-> (August 2022) 
+> [!IMPORTANT]
+> As of March 2025, use of the `PDFTron` and `PDFTronTools` podspecs distributed specifically for the PDFTron Flutter wrapper (`https://pdftron.com/downloads/ios/flutter/pdftron/latest.podspec` and `https://pdftron.com/downloads/ios/flutter/pdftron-tools/latest.podspec`, respectively) is deprecated.
+> 
+> **All new and existing users are recommended to use the standard [Apryse iOS SDK CocoaPods](https://docs.apryse.com/ios/guides/get-started/integration?tab=cocoapods) instead.**
 >
-> There are new podspec files to use when integrating the PDFTron Flutter Wrapper for iOS:
-> - `PDFTron` CocoaPod, providing `PDFNet.xcframework`: https://pdftron.com/downloads/ios/flutter/pdftron/latest.podspec
-> - `PDFTronTools` CocoaPod, providing `Tools.xcframework`: https://pdftron.com/downloads/ios/flutter/pdftron-tools/latest.podspec
->
-> Please update your `ios/Podfile` accordingly.
+> Please update your `Podfile` accordingly.
 
 4. Open `myapp/ios/Podfile` file and add:
 	```diff
@@ -161,8 +152,8 @@ The following instructions are only applicable to iOS development; click here fo
 	  target 'Runner' do
 	    ...
 	+   # PDFTron Pods
-	+   pod 'PDFTron', podspec: 'https://pdftron.com/downloads/ios/flutter/pdftron/latest.podspec'
-	+   pod 'PDFTronTools', podspec: 'https://pdftron.com/downloads/ios/flutter/pdftron-tools/latest.podspec'
+	+   pod 'PDFTron', podspec: 'https://www.pdftron.com/downloads/ios/cocoapods/xcframeworks/pdftron/latest.podspec'
+	+   pod 'PDFTronTools', podspec: 'https://www.pdftron.com/downloads/ios/cocoapods/xcframeworks/pdftron-tools/latest.podspec'
 	  end
 	```
 5. To ensure integration process is successful, run `flutter build ios --no-codesign` 
