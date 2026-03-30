@@ -849,7 +849,13 @@
 
     }
     
-    [documentController applyViewerSettings];
+    // Some iOS versions/devices may throw NSGenericException from internal UIKit layout
+    // (ex: UISlider/PTResizingToolbar constraint issues). Catch to avoid hard crash.
+    @try {
+        [documentController applyViewerSettings];
+    } @catch (NSException *exception) {
+        NSLog(@"[PDFTRON iOS] Caught exception in applyViewerSettings: %@", exception.reason);
+    }
 }
 
 + (id)getConfigValue:(NSDictionary*)configDict configKey:(NSString*)configKey class:(Class)class error:(NSError**)error

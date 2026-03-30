@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 
 import 'src/options.dart';
 import 'src/document_view.dart';
-import 'src/events.dart';
 import 'src/config.dart';
 import 'src/constants.dart';
 

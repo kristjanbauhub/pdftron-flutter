@@ -41,9 +41,8 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
 {
     [super viewDidLoad];
 
-    // Workaround to ensure thumbnail slider is hidden at launch.
-    self.thumbnailSliderHidden = YES;
-    self.thumbnailSliderController.view.hidden = YES;
+    // Avoid touching thumbnail slider controller in viewDidLoad.
+    // It can initialize slider/toolbar constraints too early on iOS.
 
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     PTUndoRedoManager *undoRedoManager = self.toolManager.undoRedoManager;
@@ -63,8 +62,9 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
 {
     [super viewWillAppear:animated];
 
-    // bottomToolBar / thumbnailSlider enabling
-    self.thumbnailSliderEnabled = ![self isBottomToolbarHidden];
+    // Keep thumbnail slider fully disabled on iOS to avoid occasional
+    // AutoLayout crashes involving UISlider/PTResizingToolbar hierarchy.
+    self.thumbnailSliderEnabled = NO;
 }
 
 - (void)viewWillDisappear:(BOOL)animated{
@@ -103,13 +103,10 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
 
 - (void)setThumbnailSliderHidden:(BOOL)hidden animated:(BOOL)animated
 {
-    // Prevent the thumbnail slider from being shown.
-    // NOTE: This method will be called with hidden=NO when the bottomToolbarEnabled property is
-    // enabled (which is just a convenience property for the thumbnailSliderEnabled property).
-    if (!hidden) {
-        return;
-    }
-    [super setThumbnailSliderHidden:hidden animated:animated];
+    // Hard no-op: calling super can trigger internal UISlider/PTResizingToolbar
+    // constraint setup that crashes on some iOS versions/devices.
+    // IMPORTANT: do not touch slider-related properties here either.
+    return;
 }
 
 - (void)openDocumentWithURL:(NSURL *)url password:(NSString *)password
@@ -168,15 +165,19 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
 
 - (void)setControlsHidden:(BOOL)controlsHidden animated:(BOOL)animated
 {
-    [super setControlsHidden:controlsHidden animated:animated];
+    // Do NOT call super here. PTDocumentBaseViewController's implementation can
+    // route through PT_setControlsHidden, which toggles thumbnail slider internals
+    // and crashes on some iOS versions/devices (UISlider/PTResizingToolbar constraints).
+    if (self.navigationController) {
+        BOOL navHidden = controlsHidden || ![self isNavigationBarEnabled];
+        [self.navigationController setNavigationBarHidden:navHidden animated:animated];
+        [self.navigationController setToolbarHidden:YES animated:animated];
+    }
 
-    // When the top toolbars are enabled...
+    // Preserve tab bar behavior for tabbed mode when top app nav bar is disabled.
     if ([self areTopToolbarsEnabled] &&
-        // ... but the navigation bar (app nav. bar) is disabled...
         ![self isNavigationBarEnabled] &&
-        // ... and we are in a tabbed viewer...
         self.tabbedDocumentViewController.tabsEnabled) {
-        // ... then manually toggle the tabbed viewer's tab bar visibility.
         [self.tabbedDocumentViewController setTabBarHidden:controlsHidden animated:animated];
     }
 }
@@ -975,14 +976,28 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
 {
     [super pdfViewCtrl:pdfViewCtrl onSetDoc:doc];
     // to align with Android's document-opened-event timing.
+    BOOL shouldEmitDocumentLoaded = NO;
     if (self.local && !self.documentLoaded) {
         self.needsDocumentLoaded = YES;
+        shouldEmitDocumentLoaded = YES;
     }
     else if (!self.local && !self.documentLoaded && self.needsRemoteDocumentLoaded) {
         self.needsDocumentLoaded = YES;
+        shouldEmitDocumentLoaded = YES;
     }
     else if (!self.local && !self.documentLoaded && self.coordinatedDocument.fileURL) {
         self.needsDocumentLoaded = YES;
+        shouldEmitDocumentLoaded = YES;
+    }
+
+    // `document_loaded_event` is emitted from `viewWillLayoutSubviews` when
+    // `needsDocumentLoaded` is true. If onSetDoc happens after the latest
+    // layout pass, schedule one more pass so Flutter always gets the event.
+    if (shouldEmitDocumentLoaded && self.isViewLoaded) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self.view setNeedsLayout];
+            [self.view layoutIfNeeded];
+        });
     }
 }
 
@@ -1046,6 +1061,7 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
 
 - (void)applyViewerSettings
 {
+
     // Fit mode.
     [self applyFitMode];
 
@@ -1067,11 +1083,11 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
 
     const BOOL translucent = hideNav;
     self.navigationController.navigationBar.translucent = translucent;
-    self.thumbnailSliderController.toolbar.translucent = translucent;
 
-    // Always enable the bottom toolbar. This is required for the custom checks in -controlsHidden
-    // when the top toolbar(s) are disabled, to be able to still toggle the bottom toolbar.
-    self.bottomToolbarEnabled = YES;
+    // Keep the bottom toolbar aligned with configured visibility.
+    // Forcing it on can instantiate the thumbnail slider path.
+    self.bottomToolbarEnabled = NO;
+    self.thumbnailSliderEnabled = NO;
 
     // Whether toggling toolbars on tap is allowed.
     self.hidesControlsOnTap = _toolbarsHiddenOnTap;
