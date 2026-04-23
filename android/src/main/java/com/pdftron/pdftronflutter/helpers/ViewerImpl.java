@@ -1,6 +1,8 @@
 package com.pdftron.pdftronflutter.helpers;
 
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -10,8 +12,13 @@ import androidx.annotation.Nullable;
 import com.pdftron.pdf.Action;
 import com.pdftron.pdf.ActionParameter;
 import com.pdftron.pdf.Annot;
+import com.pdftron.pdf.annots.Markup;
 import com.pdftron.pdf.Field;
+import com.pdftron.pdf.PDFDoc;
 import com.pdftron.pdf.PDFViewCtrl;
+import com.pdftron.pdftronflutter.bauhub.BauhubAreaPinDecoration;
+import com.pdftron.pdftronflutter.bauhub.BauhubDecorativeAreaPinZoomSync;
+import com.pdftron.pdftronflutter.bauhub.BauhubShapeMarkupStyle;
 import com.pdftron.pdf.annots.Widget;
 import com.pdftron.pdf.controls.PdfViewCtrlTabFragment2;
 import com.pdftron.pdf.model.UserBookmarkItem;
@@ -48,13 +55,18 @@ import static com.pdftron.pdftronflutter.helpers.PluginUtils.KEY_PAGE_NUMBER;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.KEY_PREVIOUS_PAGE_NUMBER;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.REFLOW_ORIENTATION_HORIZONTAL;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.REFLOW_ORIENTATION_VERTICAL;
+import static com.pdftron.pdftronflutter.helpers.PluginUtils.addBauhubRestrictedMarkupQuickMenuRemovals;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.checkQuickMenu;
+import static com.pdftron.pdftronflutter.helpers.PluginUtils.isBauhubRestrictedMarkupSubject;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.convStringToAnnotType;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.getAnnotationsData;
 
 public class ViewerImpl {
 
     private ViewerComponent mViewerComponent;
+    private final Handler mMainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable mBauhubAreaReapplyRunnable =
+            this::reapplyBauhubTranslucentAreaAppearancesAfterOtherAnnotChange;
 
     public ViewerImpl(@NonNull ViewerComponent component) {
         mViewerComponent = component;
@@ -94,9 +106,50 @@ public class ViewerImpl {
         ActionUtils.getInstance().setActionInterceptCallback(mActionInterceptCallback);
     }
 
+    /**
+     * Successful Bauhub custom area appearances clear PDF {@code IC} (fill is only in {@code AP}).
+     * Adding another annotation can regenerate defaults and wipe {@code AP}. Rebuild all Bauhub area
+     * appearances (same as post-merge refresh).
+     */
+    private void reapplyBauhubTranslucentAreaAppearancesAfterOtherAnnotChange() {
+        PDFViewCtrl pdfViewCtrl = mViewerComponent.getPdfViewCtrl();
+        if (pdfViewCtrl == null) {
+            return;
+        }
+        boolean locked = false;
+        try {
+            PDFDoc doc = pdfViewCtrl.getDoc();
+            if (doc == null || !pdfViewCtrl.docTryLock(2000)) {
+                return;
+            }
+            locked = true;
+            BauhubShapeMarkupStyle.reapplyTranslucentAppearancesAfterGlobalRefresh(doc);
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (locked) {
+                try {
+                    pdfViewCtrl.docUnlock();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        try {
+            pdfViewCtrl.update(true);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Coalesces rapid adds (e.g. batch) into one full-document Bauhub area AP rebuild. */
+    private void scheduleBauhubTranslucentAreaReapplyAfterOtherAnnotChange() {
+        mMainHandler.removeCallbacks(mBauhubAreaReapplyRunnable);
+        mMainHandler.postDelayed(mBauhubAreaReapplyRunnable, 75);
+    }
+
     private ToolManager.AnnotationModificationListener mAnnotationModificationListener = new ToolManager.AnnotationModificationListener() {
         @Override
         public void onAnnotationsAdded(Map<Annot, Integer> map) {
+            scheduleBauhubTranslucentAreaReapplyAfterOtherAnnotChange();
             PluginUtils.emitAnnotationChangedEvent(PluginUtils.KEY_ACTION_ADD, map, mViewerComponent);
 
             PluginUtils.emitExportAnnotationCommandEvent(PluginUtils.KEY_ACTION_ADD, map, mViewerComponent);
@@ -147,6 +200,33 @@ public class ViewerImpl {
 
         @Override
         public void onAnnotationsPreRemove(Map<Annot, Integer> map) {
+            PDFViewCtrl pdfViewCtrl = mViewerComponent.getPdfViewCtrl();
+            if (pdfViewCtrl != null && map != null && !map.isEmpty()) {
+                boolean locked = false;
+                try {
+                    PDFDoc doc = pdfViewCtrl.getDoc();
+                    if (doc != null && pdfViewCtrl.docTryLock(2000)) {
+                        locked = true;
+                        for (Map.Entry<Annot, Integer> e : map.entrySet()) {
+                            Annot a = e.getKey();
+                            Integer p = e.getValue();
+                            if (a != null && a.isValid() && p != null && p > 0) {
+                                BauhubAreaPinDecoration.removeDecorativePinsForParentShapeRemoval(
+                                        pdfViewCtrl, doc, a, p);
+                            }
+                        }
+                    }
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                } finally {
+                    if (locked) {
+                        try {
+                            pdfViewCtrl.docUnlock();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+            }
             PluginUtils.emitAnnotationChangedEvent(PluginUtils.KEY_ACTION_DELETE, map, mViewerComponent);
 
             PluginUtils.emitExportAnnotationCommandEvent(PluginUtils.KEY_ACTION_DELETE, map, mViewerComponent);
@@ -171,6 +251,8 @@ public class ViewerImpl {
     private ToolManager.AnnotationsSelectionListener mAnnotationsSelectionListener = new ToolManager.AnnotationsSelectionListener() {
         @Override
         public void onAnnotationsSelectionChanged(HashMap<Annot, Integer> hashMap) {
+            // Do not touch Bauhub area fill/stroke or appearances on selection — avoids Android
+            // composite glitches and keeps colors stable while selected.
             PluginUtils.emitAnnotationsSelectedEvent(hashMap, mViewerComponent);
         }
     };
@@ -403,6 +485,33 @@ public class ViewerImpl {
                     quickMenu.setDividerVisibility(View.GONE);
                 }
             }
+
+            if (annot != null && mViewerComponent.getPdfViewCtrl() != null) {
+                boolean stripBauhubMenus = false;
+                boolean unlockRead = false;
+                try {
+                    mViewerComponent.getPdfViewCtrl().docLockRead();
+                    unlockRead = true;
+                    if (annot.isMarkup()) {
+                        String subject = new Markup(annot).getSubject();
+                        stripBauhubMenus = isBauhubRestrictedMarkupSubject(subject);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                } finally {
+                    if (unlockRead) {
+                        mViewerComponent.getPdfViewCtrl().docUnlockRead();
+                    }
+                }
+                if (stripBauhubMenus) {
+                    List<QuickMenuItem> stripList = new ArrayList<>();
+                    addBauhubRestrictedMarkupQuickMenuRemovals(quickMenu, stripList);
+                    quickMenu.removeMenuEntries(stripList);
+                    if (quickMenu.getFirstRowMenuItems().size() == 0) {
+                        quickMenu.setDividerVisibility(View.GONE);
+                    }
+                }
+            }
             return false;
         }
 
@@ -420,9 +529,13 @@ public class ViewerImpl {
     private PDFViewCtrl.OnCanvasSizeChangeListener mOnCanvasSizeChangedListener = new PDFViewCtrl.OnCanvasSizeChangeListener() {
         @Override
         public void onCanvasSizeChanged() {
+            PDFViewCtrl pdfViewCtrl = mViewerComponent.getPdfViewCtrl();
+            if (pdfViewCtrl != null) {
+                BauhubDecorativeAreaPinZoomSync.requestSync(pdfViewCtrl);
+            }
             EventChannel.EventSink eventSink = mViewerComponent.getZoomChangedEventEmitter();
-            if (eventSink != null && mViewerComponent.getPdfViewCtrl() != null) {
-                eventSink.success(mViewerComponent.getPdfViewCtrl().getZoom());
+            if (eventSink != null && pdfViewCtrl != null) {
+                eventSink.success(pdfViewCtrl.getZoom());
             }
         }
     };

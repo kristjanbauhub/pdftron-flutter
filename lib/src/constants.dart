@@ -42,6 +42,7 @@ class Functions {
   static const setCurrentPage = "setCurrentPage";
   static const getDocumentPath = "getDocumentPath";
   static const setToolMode = "setToolMode";
+  static const setBauhubAreaMarkupColors = "setBauhubAreaMarkupColors";
   static const setValuesForFields = "setValuesForFields";
   static const setFlagForFields = "setFlagForFields";
   static const setLeadingNavButtonIcon = "setLeadingNavButtonIcon";
@@ -103,6 +104,8 @@ class Parameters {
   static const pageNumber = "pageNumber";
   static const title = "title";
   static const toolMode = "toolMode";
+  static const fillColorArgb = "fillColorArgb";
+  static const strokeColorArgb = "strokeColorArgb";
   static const fieldNames = "fieldNames";
   static const fields = "fields";
   static const flag = "flag";

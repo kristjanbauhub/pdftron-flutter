@@ -42,6 +42,7 @@ import com.pdftron.pdf.tools.AdvancedShapeCreate;
 import com.pdftron.pdf.tools.AnnotEditRectGroup;
 import com.pdftron.pdf.tools.Eraser;
 import com.pdftron.pdf.tools.FreehandCreate;
+import com.pdftron.pdf.tools.QuickMenu;
 import com.pdftron.pdf.tools.QuickMenuItem;
 import com.pdftron.pdf.tools.Tool;
 import com.pdftron.pdf.tools.ToolManager;
@@ -59,9 +60,16 @@ import com.pdftron.pdf.widget.bottombar.builder.BottomBarBuilder;
 import com.pdftron.pdf.widget.toolbar.builder.AnnotationToolbarBuilder;
 import com.pdftron.pdf.widget.toolbar.builder.ToolbarButtonType;
 import com.pdftron.pdf.widget.toolbar.component.DefaultToolbars;
+import com.pdftron.pdftronflutter.bauhub.BauhubAreaMarkupTool;
+import com.pdftron.pdftronflutter.bauhub.BauhubAreaPinDecoration;
+import com.pdftron.pdftronflutter.bauhub.BauhubDecorativeAreaPinZoomSync;
+import com.pdftron.pdftronflutter.bauhub.BauhubPolygonMarkupTool;
 import com.pdftron.pdftronflutter.bauhub.BauhubTaskTool;
+import com.pdftron.pdftronflutter.bauhub.BauhubPinStampTool;
+import com.pdftron.pdftronflutter.bauhub.BauhubWebPinAssets;
 import com.pdftron.pdf.tools.R;
 import com.pdftron.pdftronflutter.bauhub.BauhubPlusIconTool;
+import com.pdftron.pdftronflutter.bauhub.BauhubShapeMarkupStyle;
 import com.pdftron.sdf.Obj;
 import com.pdftron.pdf.PDFDraw;
 
@@ -96,6 +104,8 @@ public class PluginUtils {
     public static final String KEY_BOOKMARK_JSON = "bookmarkJson";
     public static final String KEY_PAGE_NUMBER = "pageNumber";
     public static final String KEY_TOOL_MODE = "toolMode";
+    public static final String KEY_FILL_COLOR_ARGB = "fillColorArgb";
+    public static final String KEY_STROKE_COLOR_ARGB = "strokeColorArgb";
     public static final String KEY_FIELD_NAMES = "fieldNames";
     public static final String KEY_FLAG = "flag";
     public static final String KEY_FLAG_VALUE = "flagValue";
@@ -310,6 +320,7 @@ public class PluginUtils {
     public static final String FUNCTION_SET_CURRENT_PAGE = "setCurrentPage";
     public static final String FUNCTION_GET_DOCUMENT_PATH = "getDocumentPath";
     public static final String FUNCTION_SET_TOOL_MODE = "setToolMode";
+    public static final String FUNCTION_SET_BAUHUB_AREA_MARKUP_COLORS = "setBauhubAreaMarkupColors";
     public static final String FUNCTION_SET_FLAG_FOR_FIELDS = "setFlagForFields";
     public static final String FUNCTION_SET_VALUES_FOR_FIELDS = "setValuesForFields";
     public static final String FUNCTION_IMPORT_ANNOTATIONS = "importAnnotations";
@@ -2396,6 +2407,23 @@ public class PluginUtils {
                 setToolMode(toolModeString, result, component);
                 break;
             }
+            case FUNCTION_SET_BAUHUB_AREA_MARKUP_COLORS: {
+                // Flutter may encode Dart int as Long on Android; Integer-typed reads return null.
+                Number fillNum = call.argument(KEY_FILL_COLOR_ARGB);
+                Number strokeNum = call.argument(KEY_STROKE_COLOR_ARGB);
+                if (fillNum != null && strokeNum != null) {
+                    int fill = (int) (fillNum.longValue() & 0xFFFFFFFFL);
+                    int stroke = (int) (strokeNum.longValue() & 0xFFFFFFFFL);
+                    android.content.Context ctx =
+                            component.getPdfViewCtrl() != null
+                                    ? component.getPdfViewCtrl().getContext()
+                                    : null;
+                    com.pdftron.pdftronflutter.bauhub.BauhubShapeMarkupStyle.setPresetColors(
+                            fill, stroke, ctx);
+                }
+                result.success(null);
+                break;
+            }
             case FUNCTION_SET_FLAG_FOR_FIELDS: {
                 checkFunctionPrecondition(component);
                 ArrayList<String> fieldNames = call.argument(KEY_FIELD_NAMES);
@@ -2971,7 +2999,8 @@ public class PluginUtils {
             pdfViewCtrl.docLock(true);
             shouldUnlock = true;
 
-            FDFDoc fdfDoc = FDFDoc.createFromXFDF(xfdf);
+            String xfdfForImport = BauhubShapeMarkupStyle.denormalizeBauhubAreaMarkupXfdfForMobileImport(xfdf);
+            FDFDoc fdfDoc = FDFDoc.createFromXFDF(xfdfForImport);
 
             if (replace) {
                 pdfDoc.fdfUpdate(fdfDoc);
@@ -2979,7 +3008,10 @@ public class PluginUtils {
                 pdfDoc.fdfMerge(fdfDoc);
             }
             pdfDoc.refreshAnnotAppearances();
+            BauhubShapeMarkupStyle.reapplyTranslucentAppearancesAfterGlobalRefresh(pdfDoc);
+            BauhubAreaPinDecoration.decorateAllMatchingShapes(pdfViewCtrl, pdfDoc);
             pdfViewCtrl.update(true);
+            pdfViewCtrl.post(() -> BauhubDecorativeAreaPinZoomSync.requestSync(pdfViewCtrl));
 
             result.success(null);
         } finally {
@@ -3005,7 +3037,7 @@ public class PluginUtils {
             PDFDoc pdfDoc = pdfViewCtrl.getDoc();
             if (null == annotationList) {
                 FDFDoc fdfDoc = pdfDoc.fdfExtract(PDFDoc.e_both);
-                result.success(fdfDoc.saveAsXFDF());
+                result.success(BauhubShapeMarkupStyle.normalizeBauhubAreaMarkupXfdfForWebParity(fdfDoc.saveAsXFDF()));
             } else {
                 JSONArray annotationJsonArray = new JSONArray(annotationList);
                 ArrayList<Annot> validAnnotationList = new ArrayList<>(annotationJsonArray.length());
@@ -3025,7 +3057,7 @@ public class PluginUtils {
 
                 if (validAnnotationList.size() > 0) {
                     FDFDoc fdfDoc = pdfDoc.fdfExtract(validAnnotationList);
-                    result.success(fdfDoc.saveAsXFDF());
+                    result.success(BauhubShapeMarkupStyle.normalizeBauhubAreaMarkupXfdfForWebParity(fdfDoc.saveAsXFDF()));
                 } else {
                     result.success("");
                 }
@@ -3690,10 +3722,12 @@ public class PluginUtils {
                 FDFDoc fdfDoc = pdfDoc.fdfExtract(PDFDoc.e_both);
                 String xfdf = fdfDoc.saveAsXFDF();
                 FDFDoc newFdfDoc = FDFDoc.createFromXFDF(xfdf);
-                newFdfDoc.mergeAnnots(xfdfCommand);
+                String commandForImport = BauhubShapeMarkupStyle.denormalizeBauhubAreaMarkupXfdfForMobileImport(xfdfCommand);
+                newFdfDoc.mergeAnnots(commandForImport);
 
                 pdfDoc.fdfUpdate(newFdfDoc);
                 pdfDoc.refreshAnnotAppearances();
+                BauhubShapeMarkupStyle.reapplyTranslucentAppearancesAfterGlobalRefresh(pdfDoc);
                 pdfViewCtrl.update(true);
                 result.success(null);
             } finally {
@@ -3946,23 +3980,46 @@ public class PluginUtils {
             toolManager.setMultiSelectMode(AnnotEditRectGroup.SelectionMode.RECTANGULAR);
         }
 
-        // Create our tool
-        ToolManager.ToolMode mode = convStringToToolMode(toolModeString);
-        Tool tool = (Tool) toolManager.createTool(mode, null);
+        // Custom Flutter strings (e.g. BauhubCommentAreaTool) are not in convStringToToolMode — resolve them
+        // here with createTool(MODE, previousTool). Never pass a null mode into createTool (falls back to Pan).
+        String modeKey = toolModeString == null ? null : toolModeString.trim();
+        ToolManager.Tool previous = toolManager.getTool();
+        Tool tool;
 
-        if (toolModeString.contains("BauhubTaskTool")) {
-            String colorCode = toolModeString.substring(toolModeString.length() - 6).toLowerCase();
-            String imageName = "task_" + colorCode;
-            int rawImageInt = context.getResources().getIdentifier(imageName, "raw", context.getPackageName());
-
-            tool = (Tool) toolManager.createTool(BauhubTaskTool.MODE, toolManager.getTool());
-            if (rawImageInt > 0) {
-                ((BauhubTaskTool)tool).setImage(rawImageInt, imageName);
+        if ("BauhubCommentStampTool".equals(modeKey)) {
+            tool = (Tool) toolManager.createTool(BauhubPinStampTool.MODE, previous);
+            ((BauhubPinStampTool) tool).configure(com.pdftron.pdftronflutter.R.raw.bauhub_comment_pin, "bauhub_comment_pin", "Comment");
+        } else if ("BauhubAttachmentStampTool".equals(modeKey)) {
+            tool = (Tool) toolManager.createTool(BauhubPinStampTool.MODE, previous);
+            ((BauhubPinStampTool) tool).configure(com.pdftron.pdftronflutter.R.raw.bauhub_attachment_pin, "bauhub_attachment_pin", "Attachment");
+        } else if ("BauhubCommentAreaTool".equals(modeKey)) {
+            tool = (Tool) toolManager.createTool(BauhubAreaMarkupTool.MODE, previous);
+            ((BauhubAreaMarkupTool) tool).configure("Comment");
+        } else if ("BauhubAttachmentAreaTool".equals(modeKey)) {
+            tool = (Tool) toolManager.createTool(BauhubAreaMarkupTool.MODE, previous);
+            ((BauhubAreaMarkupTool) tool).configure("Attachment");
+        } else if ("BauhubCommentPolygonTool".equals(modeKey)) {
+            tool = (Tool) toolManager.createTool(BauhubPolygonMarkupTool.MODE, previous);
+            ((BauhubPolygonMarkupTool) tool).configure("Comment");
+        } else if ("BauhubAttachmentPolygonTool".equals(modeKey)) {
+            tool = (Tool) toolManager.createTool(BauhubPolygonMarkupTool.MODE, previous);
+            ((BauhubPolygonMarkupTool) tool).configure("Attachment");
+        } else if ("BauhubTaskAreaTool".equals(modeKey)) {
+            tool = (Tool) toolManager.createTool(BauhubAreaMarkupTool.MODE, previous);
+            ((BauhubAreaMarkupTool) tool).configure("Task");
+        } else if (modeKey != null && modeKey.contains("BauhubTaskTool")) {
+            tool = (Tool) toolManager.createTool(BauhubTaskTool.MODE, previous);
+            int taskPinRaw = BauhubWebPinAssets.taskStampRawId(context);
+            String taskPinName = BauhubWebPinAssets.taskStampBaseName(context);
+            ((BauhubTaskTool) tool).setImage(taskPinRaw, taskPinName);
+        } else if (modeKey != null && modeKey.contains("BauhubPlusIconTool")) {
+            tool = (Tool) toolManager.createTool(BauhubPlusIconTool.MODE, previous);
+        } else {
+            ToolManager.ToolMode mode = convStringToToolMode(modeKey);
+            if (mode == null) {
+                mode = ToolManager.ToolMode.PAN;
             }
-        }
-
-        if (toolModeString.contains("BauhubPlusIconTool")) {
-            tool = (Tool) toolManager.createTool(BauhubPlusIconTool.MODE, toolManager.getTool());
+            tool = (Tool) toolManager.createTool(mode, null);
         }
 
         boolean continuousAnnot = PdfViewCtrlSettingsManager.getContinuousAnnotationEdit(context);
@@ -4513,7 +4570,7 @@ public class PluginUtils {
                         public void onLocalChange(String action, String xfdfCommand, String xfdfJSON) {
                             EventChannel.EventSink eventSink = component.getExportAnnotationCommandEventEmitter();
                             if (eventSink != null) {
-                                eventSink.success(xfdfCommand);
+                                eventSink.success(BauhubShapeMarkupStyle.normalizeBauhubAreaMarkupXfdfForWebParity(xfdfCommand));
                             }
                         }
                     });
@@ -4726,7 +4783,7 @@ public class PluginUtils {
 
             EventChannel.EventSink eventSink = component.getExportAnnotationCommandEventEmitter();
             if (eventSink != null) {
-                eventSink.success(xfdfCommand);
+                eventSink.success(BauhubShapeMarkupStyle.normalizeBauhubAreaMarkupXfdfForWebParity(xfdfCommand));
             }
         }
     }
@@ -4755,7 +4812,8 @@ public class PluginUtils {
 
     private static void checkFunctionPrecondition(ViewerComponent component) {
         Objects.requireNonNull(component);
-        Objects.requireNonNull(component.getPdfDoc());
+        // Do not require getPdfDoc() — it is null until the PDF finishes loading. Methods such as
+        // mergeAnnotations/importAnnotations must null-check and return result.error (see importAnnotations).
     }
 
     @Nullable
@@ -4840,6 +4898,46 @@ public class PluginUtils {
             String menuStr = convQuickMenuIdToString(menuId);
             if (!keepList.contains(menuStr)) {
                 removeList.add(item);
+            }
+        }
+    }
+
+    public static boolean isBauhubRestrictedMarkupSubject(String subject) {
+        if (subject == null) {
+            return false;
+        }
+        return "Comment".equals(subject) || "Attachment".equals(subject) || "Task".equals(subject);
+    }
+
+    public static void addBauhubRestrictedMarkupQuickMenuRemovals(QuickMenu quickMenu, List<QuickMenuItem> removeList) {
+        int[] ids = {
+                R.id.qm_appearance,
+                R.id.qm_note,
+                R.id.qm_copy,
+                R.id.qm_group,
+                R.id.qm_ungroup,
+                R.id.qm_thickness,
+                R.id.qm_translate,
+                R.id.qm_first_row_group,
+                R.id.qm_second_row_group,
+                R.id.qm_rect_group_select,
+        };
+        addBauhubQuickMenuItemsWithIds(quickMenu.getFirstRowMenuItems(), ids, removeList);
+        addBauhubQuickMenuItemsWithIds(quickMenu.getSecondRowMenuItems(), ids, removeList);
+        addBauhubQuickMenuItemsWithIds(quickMenu.getOverflowMenuItems(), ids, removeList);
+    }
+
+    private static void addBauhubQuickMenuItemsWithIds(List<QuickMenuItem> items, int[] ids, List<QuickMenuItem> removeList) {
+        if (items == null) {
+            return;
+        }
+        for (QuickMenuItem item : items) {
+            int itemId = item.getItemId();
+            for (int id : ids) {
+                if (itemId == id) {
+                    removeList.add(item);
+                    break;
+                }
             }
         }
     }

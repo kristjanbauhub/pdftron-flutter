@@ -24,8 +24,11 @@ import com.pdftron.pdf.tools.QuickMenu;
 import com.pdftron.pdf.tools.QuickMenuItem;
 import com.pdftron.pdf.tools.ToolManager;
 import com.pdftron.pdf.utils.Utils;
+import com.pdftron.pdftronflutter.bauhub.BauhubAreaMarkupTool;
+import com.pdftron.pdftronflutter.bauhub.BauhubPolygonMarkupTool;
 import com.pdftron.pdftronflutter.bauhub.BauhubTaskTool;
 import com.pdftron.pdftronflutter.bauhub.BauhubPlusIconTool;
+import com.pdftron.pdftronflutter.bauhub.BauhubPinStampTool;
 import com.pdftron.pdftronflutter.R;
 import com.pdftron.pdftronflutter.helpers.PluginUtils;
 import com.pdftron.pdftronflutter.helpers.ViewerComponent;
@@ -135,6 +138,9 @@ public class DocumentView extends com.pdftron.pdf.controls.DocumentView2 impleme
 
         mToolManagerBuilder.addCustomizedTool(BauhubTaskTool.MODE, BauhubTaskTool.class);
         mToolManagerBuilder.addCustomizedTool(BauhubPlusIconTool.MODE, BauhubPlusIconTool.class);
+        mToolManagerBuilder.addCustomizedTool(BauhubPinStampTool.MODE, BauhubPinStampTool.class);
+        mToolManagerBuilder.addCustomizedTool(BauhubAreaMarkupTool.MODE, BauhubAreaMarkupTool.class);
+        mToolManagerBuilder.addCustomizedTool(BauhubPolygonMarkupTool.MODE, BauhubPolygonMarkupTool.class);
 
         mInitialPageNumber = configInfo.getInitialPageNumber();
         mIsBase64 = configInfo.isBase64();

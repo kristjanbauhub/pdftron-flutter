@@ -10,6 +10,14 @@ import 'package:flutter/rendering.dart';
 
 import '../pdftron_flutter.dart';
 
+/// Parent routes (e.g. modal bottom sheets) may install vertical drag recognizers.
+/// Without eager claiming, iOS platform views can leave a parent [Scrollable] in a bad
+/// `_hold` state (assertions in `scrollable.dart` on drag cancel / next drag down).
+final Set<Factory<OneSequenceGestureRecognizer>> _pdftronDocumentViewIosGestureRecognizers =
+    <Factory<OneSequenceGestureRecognizer>>{
+  Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
+};
+
 typedef void DocumentViewCreatedCallback(DocumentViewController controller);
 
 class DocumentView extends StatefulWidget {
@@ -49,6 +57,7 @@ class _DocumentViewState extends State<DocumentView> {
       return UiKitView(
         viewType: viewType,
         onPlatformViewCreated: _onPlatformViewCreated,
+        gestureRecognizers: _pdftronDocumentViewIosGestureRecognizers,
       );
     }
     return Text('coming soon');
@@ -372,6 +381,15 @@ class DocumentViewController {
   Future<void> setToolMode(String toolMode) {
     return _channel.invokeMethod(Functions.setToolMode,
         <String, dynamic>{Parameters.toolMode: toolMode});
+  }
+
+  /// Sets fill/stroke preset for the next Bauhub Comment/Attachment area (rectangle or polygon).
+  /// ARGB values use opaque alpha (0xFF......). Matches web [PdfTronBauhubToolbar] palette behaviour.
+  Future<void> setBauhubAreaMarkupColors(int fillColorArgb, int strokeColorArgb) {
+    return _channel.invokeMethod(Functions.setBauhubAreaMarkupColors, <String, dynamic>{
+      Parameters.fillColorArgb: fillColorArgb,
+      Parameters.strokeColorArgb: strokeColorArgb,
+    });
   }
 
   /// Sets the value of the given [flag] to [flagValue] on the given form fields.

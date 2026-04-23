@@ -29,21 +29,24 @@ import java.io.File;
 
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.KEY_LICENSE_KEY;
 
-public class BauhubTaskTool extends Stamper {
+public class BauhubPinStampTool extends Stamper {
 
     public static ToolManager.ToolModeBase MODE = ToolManager.ToolMode.addNewMode(Annot.e_Stamp);
     private int rawImageInt;
     private String imageName;
+    private String bauhubSubject;
 
-    public void setImage(int rawImageInt, String imageName) {
+    public void configure(int rawImageInt, String imageName, String subject) {
         this.rawImageInt = rawImageInt;
         this.imageName = imageName;
+        this.bauhubSubject = subject;
     }
 
-    public BauhubTaskTool(@NonNull PDFViewCtrl ctrl) {
+    public BauhubPinStampTool(@NonNull PDFViewCtrl ctrl) {
         super(ctrl);
-        this.rawImageInt = R.raw.task_111111;
-        this.imageName = "task_111111";
+        this.rawImageInt = R.raw.bauhub_comment_pin;
+        this.imageName = "bauhub_comment_pin";
+        this.bauhubSubject = "Comment";
     }
 
     @Override
@@ -65,6 +68,23 @@ public class BauhubTaskTool extends Stamper {
     @Override
     public boolean onUp(MotionEvent e, PDFViewCtrl.PriorEventMode priorEventMode) {
         return super.onUp(e, priorEventMode);
+    }
+
+    /**
+     * Default stamper often stays in stamp mode so repeated taps keep placing pins. After one Bauhub
+     * pin, return to the viewer default tool (pan) until the user picks the tool again from Flutter.
+     */
+    @Override
+    protected void safeSetNextToolMode() {
+        try {
+            ToolManager tm = (ToolManager) mPdfViewCtrl.getToolManager();
+            if (tm != null) {
+                tm.backToDefaultTool();
+                return;
+            }
+        } catch (Exception ignored) {
+        }
+        super.safeSetNextToolMode();
     }
 
     @Override
@@ -182,6 +202,9 @@ public class BauhubTaskTool extends Stamper {
                 if (annot.isMarkup()) {
                     Markup markup = new Markup(annot);
                     this.setAuthor(markup);
+                    if (bauhubSubject != null && !bauhubSubject.isEmpty()) {
+                        markup.setSubject(bauhubSubject);
+                    }
                     try {
                         annot.refreshAppearance();
                     } catch (Exception ignored) {

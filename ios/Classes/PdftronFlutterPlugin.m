@@ -2,6 +2,7 @@
 #import "PTFlutterDocumentController.h"
 #import "DocumentViewFactory.h"
 #import "PTNavigationController.h"
+#import <stdlib.h>
 
 @interface PdftronFlutterPlugin () <PTTabbedDocumentViewControllerDelegate, PTDocumentControllerDelegate>
 
@@ -29,6 +30,278 @@
 @property (nonatomic, assign, getter=isMultiTabSet) BOOL multiTabSet;
 
 @end
+
+static void BauhubDecorateAllImportedAreaPins(PTPDFViewCtrl *pdfViewCtrl, PTPDFDoc *doc);
+static NSString *BauhubWebTaskPinImageName(void);
+static void BauhubScheduleDecorativeAreaPinZoomSync(PTPDFViewCtrl *pdfViewCtrl);
+static void BauhubSyncDecorativeAreaPinSizesNow(PTPDFViewCtrl *pdfViewCtrl);
+void BauhubSetAreaMarkupPresetColors(unsigned fillArgb, unsigned strokeArgb);
+static BOOL BauhubTryUint32FromFlutterColorArg(id value, NSUInteger *outArgb);
+static void BauhubApplyAreaToolDrawPreviewDefaults(PTPDFViewCtrl *pdfViewCtrl);
+static void BauhubScheduleAreaPinStamp(PTPDFViewCtrl *pdfViewCtrl, int pageHint, PTAnnot *shapeAnnot);
+static void BauhubRestoreTranslucentAreaMarkupAppearancesInDoc(PTPDFDoc *doc);
+static UIImage *BauhubLoadTemplateImageNamed(NSString *name);
+static void BauhubScheduleReapplyBauhubAreaMarkupStyle(PTPDFViewCtrl *pdfViewCtrl, PTAnnot *annot, int pageNumber, NSString *subject);
+
+static BOOL BauhubXfdfAttributeStringHasBauhubAreaSubject(NSString *attrs) {
+    if (attrs.length == 0) {
+        return NO;
+    }
+    NSError *err = nil;
+    NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:@"(?i)subject\\s*=\\s*[\"'](Comment|Attachment|Task)[\"']"
+                                                                        options:0
+                                                                          error:&err];
+    return (re != nil) && ([re numberOfMatchesInString:attrs options:0 range:NSMakeRange(0, attrs.length)] > 0);
+}
+
+/// `<squareattrs>` is invalid XFDF; ensure one leading space before the attribute list when missing.
+static NSString *BauhubXfdfAttrsWithLeadingSpace(NSString *attrs) {
+    if (attrs.length == 0) {
+        return attrs;
+    }
+    unichar c = [attrs characterAtIndex:0];
+    if ([[NSCharacterSet whitespaceAndNewlineCharacterSet] characterIsMember:c]) {
+        return attrs;
+    }
+    return [NSString stringWithFormat:@" %@", attrs];
+}
+
+/// PDFNet sometimes serializes the first trn-custom-data as an opening tag before a second trn, and emits
+/// `</square>` / `</polygon>` before `<apref>` — invalid XML. Same steps as Android `repairSquarePolygonTrnCustomDataXfdfMerging` / Dart `_repairTrnCustomDataMerging`.
+static NSString *BauhubRepairSquarePolygonTrnCustomDataXfdfMerging(NSString *xfdf) {
+    if (xfdf.length == 0) {
+        return xfdf;
+    }
+    NSError *err = nil;
+    NSRegularExpression *reOpen = [NSRegularExpression regularExpressionWithPattern:@"(?is)<trn-custom-data(\\b[^>]*?)\"\\s*>\\s*<trn-custom-data"
+                                                                            options:0
+                                                                              error:&err];
+    NSString *out = xfdf;
+    if (reOpen && !err) {
+        out = [reOpen stringByReplacingMatchesInString:out options:0 range:NSMakeRange(0, out.length) withTemplate:@"<trn-custom-data$1\"/><trn-custom-data"];
+    }
+    err = nil;
+    NSRegularExpression *reSpuriousClose = [NSRegularExpression regularExpressionWithPattern:@"(?is)((?:<(?:[\\w.-]+:)?trn-custom-data\\b[^>]*/\\s*>\\s*)+)</[\\w.:-]*(square|polygon)\\s*>\\s*(<apref\\b)"
+                                                                                      options:0
+                                                                                        error:&err];
+    if (reSpuriousClose && !err) {
+        out = [reSpuriousClose stringByReplacingMatchesInString:out options:0 range:NSMakeRange(0, out.length) withTemplate:@"$1$3"];
+    }
+    return out;
+}
+
+static NSString *BauhubNormalizeHexForCompare(NSString *hex) {
+    if (hex.length == 0) {
+        return @"";
+    }
+    NSString *h = hex;
+    if (![h hasPrefix:@"#"]) {
+        h = [NSString stringWithFormat:@"#%@", h];
+    }
+    return [h lowercaseString];
+}
+
+/// When interior-color already differs from stroke `color`, keep it (web parity normalization must not collapse fill into stroke).
+static BOOL BauhubAreaInteriorDiffersFromStroke(NSString *strokeHex, NSString *interiorHex) {
+    if (interiorHex.length == 0 || strokeHex.length == 0) {
+        return NO;
+    }
+    return ![BauhubNormalizeHexForCompare(strokeHex) isEqualToString:BauhubNormalizeHexForCompare(interiorHex)];
+}
+
+/// Aligns outgoing XFDF for Bauhub Comment/Attachment/Task squares/polygons with WebViewer exports (see bauhub-fe).
+static NSString *BauhubNormalizeBauhubAreaMarkupXfdfForWebParity(NSString *xfdf) {
+    if (xfdf.length == 0) {
+        return xfdf;
+    }
+    xfdf = BauhubRepairSquarePolygonTrnCustomDataXfdfMerging(xfdf);
+    NSError *err = nil;
+    NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:@"<(square|polygon)\\s([\\s\\S]*?)/\\s*>"
+                                                                        options:NSRegularExpressionCaseInsensitive
+                                                                          error:&err];
+    if (!re || err) {
+        return xfdf;
+    }
+    NSRegularExpression *opDouble = [NSRegularExpression regularExpressionWithPattern:@"(?i)\\bopacity\\s*=\\s*\"[^\"]*\""
+                                                                                options:0
+                                                                                  error:nil];
+    NSRegularExpression *opSingle = [NSRegularExpression regularExpressionWithPattern:@"(?i)\\bopacity\\s*=\\s*'[^']*'"
+                                                                                options:0
+                                                                                  error:nil];
+    NSRegularExpression *colorRe = [NSRegularExpression regularExpressionWithPattern:@"(?i)\\bcolor\\s*=\\s*\"(#?[0-9A-Fa-f]{6})\""
+                                                                               options:0
+                                                                                 error:nil];
+    NSRegularExpression *intRe = [NSRegularExpression regularExpressionWithPattern:@"(?i)\\binterior-color\\s*=\\s*\"[^\"]*\""
+                                                                             options:0
+                                                                               error:nil];
+    NSRegularExpression *intHexRe = [NSRegularExpression regularExpressionWithPattern:@"(?i)\\binterior-color\\s*=\\s*\"(#?[0-9A-Fa-f]{6})\""
+                                                                                options:0
+                                                                                  error:nil];
+    NSMutableString *out = [xfdf mutableCopy];
+    NSArray<NSTextCheckingResult *> *matches = [re matchesInString:out options:0 range:NSMakeRange(0, out.length)];
+    for (NSTextCheckingResult *m in [matches reverseObjectEnumerator]) {
+        if (m.numberOfRanges < 3) {
+            continue;
+        }
+        NSString *attrs = [out substringWithRange:[m rangeAtIndex:2]];
+        if (!BauhubXfdfAttributeStringHasBauhubAreaSubject(attrs)) {
+            continue;
+        }
+        NSString *newAttrs = attrs;
+        if ([opDouble numberOfMatchesInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length)] > 0) {
+            newAttrs = [opDouble stringByReplacingMatchesInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length) withTemplate:@"opacity=\"0.3\""];
+        } else if ([opSingle numberOfMatchesInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length)] > 0) {
+            newAttrs = [opSingle stringByReplacingMatchesInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length) withTemplate:@"opacity='0.3'"];
+        } else {
+            newAttrs = [NSString stringWithFormat:@" opacity=\"0.3\" %@", newAttrs];
+        }
+        if ([newAttrs rangeOfString:@"dashes=" options:NSCaseInsensitiveSearch].location == NSNotFound) {
+            newAttrs = [NSString stringWithFormat:@" dashes=\"\" %@", newAttrs];
+        }
+        NSTextCheckingResult *colorMatch = [colorRe firstMatchInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length)];
+        if (colorMatch && colorMatch.numberOfRanges >= 2) {
+            NSString *strokeHexRaw = [newAttrs substringWithRange:[colorMatch rangeAtIndex:1]];
+            NSString *hex = strokeHexRaw;
+            if (hex.length > 0 && ![hex hasPrefix:@"#"]) {
+                hex = [NSString stringWithFormat:@"#%@", hex];
+            }
+            NSString *interiorHexRaw = nil;
+            NSTextCheckingResult *intHexMatch = intHexRe ? [intHexRe firstMatchInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length)] : nil;
+            if (intHexMatch && intHexMatch.numberOfRanges >= 2) {
+                interiorHexRaw = [newAttrs substringWithRange:[intHexMatch rangeAtIndex:1]];
+            }
+            BOOL preserveInterior = BauhubAreaInteriorDiffersFromStroke(strokeHexRaw, interiorHexRaw);
+            if (!preserveInterior && hex.length > 0) {
+                NSString *icTemplate = [NSString stringWithFormat:@"interior-color=\"%@\"", hex];
+                if ([intRe numberOfMatchesInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length)] > 0) {
+                    newAttrs = [intRe stringByReplacingMatchesInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length) withTemplate:icTemplate];
+                } else {
+                    newAttrs = [NSString stringWithFormat:@" %@ %@", icTemplate, newAttrs];
+                }
+            }
+        }
+        NSString *tagName = [out substringWithRange:[m rangeAtIndex:1]];
+        // Self-closing only: PDFNet iOS/Android XFDF import rejects a trn-custom-data child inside square/polygon.
+        NSString *replacement = [NSString stringWithFormat:@"<%@%@/>", tagName, BauhubXfdfAttrsWithLeadingSpace(newAttrs)];
+        [out replaceCharactersInRange:m.range withString:replacement];
+    }
+    NSError *errPaired = nil;
+    NSRegularExpression *pairedRe = [NSRegularExpression regularExpressionWithPattern:@"(?i)<(square|polygon)(\\s[^>]*?)>\\s*</\\1\\s*>"
+                                                                               options:0
+                                                                                 error:&errPaired];
+    if (pairedRe && !errPaired) {
+        NSArray<NSTextCheckingResult *> *paired = [pairedRe matchesInString:out options:0 range:NSMakeRange(0, out.length)];
+        for (NSTextCheckingResult *m in [paired reverseObjectEnumerator]) {
+            if (m.numberOfRanges < 3) {
+                continue;
+            }
+            NSString *attrs = [out substringWithRange:[m rangeAtIndex:2]];
+            if (!BauhubXfdfAttributeStringHasBauhubAreaSubject(attrs)) {
+                continue;
+            }
+            NSString *newAttrs = attrs;
+            if ([opDouble numberOfMatchesInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length)] > 0) {
+                newAttrs = [opDouble stringByReplacingMatchesInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length) withTemplate:@"opacity=\"0.3\""];
+            } else if ([opSingle numberOfMatchesInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length)] > 0) {
+                newAttrs = [opSingle stringByReplacingMatchesInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length) withTemplate:@"opacity='0.3'"];
+            } else {
+                newAttrs = [NSString stringWithFormat:@" opacity=\"0.3\" %@", newAttrs];
+            }
+            if ([newAttrs rangeOfString:@"dashes=" options:NSCaseInsensitiveSearch].location == NSNotFound) {
+                newAttrs = [NSString stringWithFormat:@" dashes=\"\" %@", newAttrs];
+            }
+            NSTextCheckingResult *colorMatch2 = [colorRe firstMatchInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length)];
+            if (colorMatch2 && colorMatch2.numberOfRanges >= 2) {
+                NSString *strokeHexRaw2 = [newAttrs substringWithRange:[colorMatch2 rangeAtIndex:1]];
+                NSString *hex = strokeHexRaw2;
+                if (hex.length > 0 && ![hex hasPrefix:@"#"]) {
+                    hex = [NSString stringWithFormat:@"#%@", hex];
+                }
+                NSString *interiorHexRaw2 = nil;
+                NSTextCheckingResult *intHexMatch2 = intHexRe ? [intHexRe firstMatchInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length)] : nil;
+                if (intHexMatch2 && intHexMatch2.numberOfRanges >= 2) {
+                    interiorHexRaw2 = [newAttrs substringWithRange:[intHexMatch2 rangeAtIndex:1]];
+                }
+                BOOL preserveInterior2 = BauhubAreaInteriorDiffersFromStroke(strokeHexRaw2, interiorHexRaw2);
+                if (!preserveInterior2 && hex.length > 0) {
+                    NSString *icTemplate = [NSString stringWithFormat:@"interior-color=\"%@\"", hex];
+                    if ([intRe numberOfMatchesInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length)] > 0) {
+                        newAttrs = [intRe stringByReplacingMatchesInString:newAttrs options:0 range:NSMakeRange(0, newAttrs.length) withTemplate:icTemplate];
+                    } else {
+                        newAttrs = [NSString stringWithFormat:@" %@ %@", icTemplate, newAttrs];
+                    }
+                }
+            }
+            NSString *tagName = [out substringWithRange:[m rangeAtIndex:1]];
+            NSString *replacement = [NSString stringWithFormat:@"<%@%@/>", tagName, BauhubXfdfAttrsWithLeadingSpace(newAttrs)];
+            [out replaceCharactersInRange:m.range withString:replacement];
+        }
+    }
+    return [out copy];
+}
+
+/// After folding to \<square .../\>, a leftover \</square\> (or trn-custom-data + \</square\>) breaks libxml ("annots" vs "square"). Strip those orphans.
+static NSString *BauhubStripOrphanClosingAfterSelfClosedAreaMarkup(NSString *xfdf) {
+    if (xfdf.length == 0) {
+        return xfdf;
+    }
+    NSRegularExpressionOptions opts = NSRegularExpressionCaseInsensitive | NSRegularExpressionDotMatchesLineSeparators;
+    NSArray<NSString *> *patterns = @[
+        @"(?is)(<[\\w.:-]*square\\b[^>]*/\\s*>)\\s*<(?:[\\w.-]+:)?trn-custom-data\\b[\\s\\S]*?/\\s*>\\s*</[\\w.:-]*square\\s*>",
+        @"(?is)(<[\\w.:-]*square\\b[^>]*/\\s*>)\\s*</[\\w.:-]*square\\s*>",
+        @"(?is)(<[\\w.:-]*polygon\\b[^>]*/\\s*>)\\s*<(?:[\\w.-]+:)?trn-custom-data\\b[\\s\\S]*?/\\s*>\\s*</[\\w.:-]*polygon\\s*>",
+        @"(?is)(<[\\w.:-]*polygon\\b[^>]*/\\s*>)\\s*</[\\w.:-]*polygon\\s*>",
+    ];
+    NSString *out = xfdf;
+    for (NSUInteger pass = 0; pass < 32; pass++) {
+        NSUInteger lenBefore = out.length;
+        for (NSString *pattern in patterns) {
+            NSError *err = nil;
+            NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:pattern options:opts error:&err];
+            if (!re || err) {
+                continue;
+            }
+            out = [re stringByReplacingMatchesInString:out options:0 range:NSMakeRange(0, out.length) withTemplate:@"$1"];
+        }
+        if (out.length == lenBefore) {
+            break;
+        }
+    }
+    return out;
+}
+
+/// PDFNet mobile XFDF import rejects WebViewer-style square/polygon with a trn-custom-data child; fold back to self-closing tags.
+/// Matches optional XML prefixes (e.g. xfdf:square) and uses [\s\S]*? for trn-custom-data so attribute values cannot break [^>]*.
+static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *xfdf) {
+    if (xfdf.length == 0) {
+        return xfdf;
+    }
+    xfdf = BauhubRepairSquarePolygonTrnCustomDataXfdfMerging(xfdf);
+    NSString *out = BauhubStripOrphanClosingAfterSelfClosedAreaMarkup(xfdf);
+    NSRegularExpressionOptions opts = NSRegularExpressionCaseInsensitive | NSRegularExpressionDotMatchesLineSeparators;
+    NSArray<NSString *> *patterns = @[
+        @"(?is)<([\\w.:-]*square)(\\s[^>]*?)>\\s*<(?:[\\w.-]+:)?trn-custom-data\\b[\\s\\S]*?/\\s*>\\s*</[\\w.:-]*square\\s*>",
+        @"(?is)<([\\w.:-]*polygon)(\\s[^>]*?)>\\s*<(?:[\\w.-]+:)?trn-custom-data\\b[\\s\\S]*?/\\s*>\\s*</[\\w.:-]*polygon\\s*>",
+        @"(?is)<([\\w.:-]*square)(\\s[^>]*?)>\\s*<(?:[\\w.-]+:)?trn-custom-data\\b[\\s\\S]*?</(?:[\\w.-]+:)?trn-custom-data\\s*>\\s*</[\\w.:-]*square\\s*>",
+        @"(?is)<([\\w.:-]*polygon)(\\s[^>]*?)>\\s*<(?:[\\w.-]+:)?trn-custom-data\\b[\\s\\S]*?</(?:[\\w.-]+:)?trn-custom-data\\s*>\\s*</[\\w.:-]*polygon\\s*>",
+    ];
+    for (NSUInteger pass = 0; pass < 32; pass++) {
+        NSUInteger lenBefore = out.length;
+        for (NSString *pattern in patterns) {
+            NSError *err = nil;
+            NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:pattern options:opts error:&err];
+            if (!re || err) {
+                continue;
+            }
+            out = [re stringByReplacingMatchesInString:out options:0 range:NSMakeRange(0, out.length) withTemplate:@"<$1$2/>"];
+        }
+        if (out.length == lenBefore) {
+            break;
+        }
+    }
+    out = BauhubStripOrphanClosingAfterSelfClosedAreaMarkup(out);
+    return out;
+}
 
 @implementation PdftronFlutterPlugin
 
@@ -92,7 +365,17 @@
     
     self.tabbedDocumentViewController.viewControllerClass = [PTFlutterDocumentController class];
     
-    [self.tabbedDocumentViewController.tabManager restoreItems];
+    // Widget-embedded viewer: tabs are disabled and each widget instance represents a single document session.
+    // Restoring previously persisted tab items from an earlier widget lifetime causes PDFTron to treat the
+    // reopened URL as an already-loaded tab, so `viewWillLayoutSubviews` never flips `needsDocumentLoaded`
+    // and the `documentLoadedFromFilePath:` event is never delivered to Flutter — leaving `isLoading`
+    // stuck at `true` and hiding our overlays (annotation toolbar, activity feed button, etc.).
+    // Skip restoration entirely in widget mode; PTDocumentTabManager has no items so a subsequent
+    // `saveItems` on layout will persist an empty set and wipe out the stale state from the previous
+    // widget lifetime.
+    if (!self.isWidgetView) {
+        [self.tabbedDocumentViewController.tabManager restoreItems];
+    }
     
     self.tabbedDocumentViewController.restorationIdentifier = [NSUUID UUID].UUIDString;
 }
@@ -1388,7 +1671,8 @@
 {
     if(self.xfdfEventSink != nil)
     {
-        self.xfdfEventSink(xfdfCommand);
+        NSString *normalized = BauhubNormalizeBauhubAreaMarkupXfdfForWebParity(xfdfCommand);
+        self.xfdfEventSink(normalized);
     }
 }
 
@@ -1478,6 +1762,7 @@
     {
         self.zoomChangedEventSink(zoom);
     }
+    BauhubScheduleDecorativeAreaPinZoomSync(docVC.pdfViewCtrl);
 }
 
 -(void)documentController:(PTDocumentController *)docVC pageMoved:(NSString *)pageNumbersString
@@ -1554,6 +1839,9 @@
     } else if ([call.method isEqualToString:PTImportAnnotationsKey]) {
         NSString *xfdf = [PdftronFlutterPlugin PT_idAsNSString:call.arguments[PTXfdfArgumentKey]];;
         [self importAnnotations:xfdf resultToken:result];
+    } else if ([call.method isEqualToString:PTMergeAnnotationsKey]) {
+        NSString *xfdf = [PdftronFlutterPlugin PT_idAsNSString:call.arguments[PTXfdfArgumentKey]];;
+        [self mergeAnnotations:xfdf resultToken:result];
     } else if ([call.method isEqualToString:PTExportAnnotationsKey]) {
         NSString *annotationList = [PdftronFlutterPlugin PT_idAsNSString:call.arguments[PTAnnotationListArgumentKey]];;
         [self exportAnnotations:annotationList resultToken:result];
@@ -1631,6 +1919,24 @@
     } else if ([call.method isEqualToString:PTSetToolModeKey]) {
            NSString *toolMode = [PdftronFlutterPlugin PT_idAsNSString:call.arguments[PTToolModeArgumentKey]];
            [self setToolMode:toolMode resultToken:result];
+    } else if ([call.method isEqualToString:PTSetBauhubAreaMarkupColorsKey]) {
+        NSDictionary *colorArgs = [PdftronFlutterPlugin PT_idAsNSDict:call.arguments];
+        if (!colorArgs && [call.arguments isKindOfClass:[NSDictionary class]]) {
+            colorArgs = (NSDictionary *)call.arguments;
+        }
+        if (colorArgs) {
+            NSUInteger fillArgb = 0;
+            NSUInteger strokeArgb = 0;
+            if (BauhubTryUint32FromFlutterColorArg(colorArgs[PTFillColorArgbArgumentKey], &fillArgb) &&
+                BauhubTryUint32FromFlutterColorArg(colorArgs[PTStrokeColorArgbArgumentKey], &strokeArgb)) {
+                BauhubSetAreaMarkupPresetColors((unsigned)fillArgb, (unsigned)strokeArgb);
+                PTDocumentController *dc = [self getDocumentController];
+                if (dc.pdfViewCtrl) {
+                    BauhubApplyAreaToolDrawPreviewDefaults(dc.pdfViewCtrl);
+                }
+            }
+        }
+        result(nil);
     } else if ([call.method isEqualToString:PTSetFlagForFieldsKey]) {
         NSArray *fieldNames = [PdftronFlutterPlugin PT_idAsArray:call.arguments[PTFieldNamesArgumentKey]];
         NSNumber *flag = [PdftronFlutterPlugin PT_idAsNSNumber:call.arguments[PTFlagArgumentKey]];
@@ -1794,6 +2100,7 @@
     PTTool *tool = documentController.toolManager.tool;
     if ([tool isKindOfClass:[BauhubTaskTool class]]) {
         flutterResult(@"true");
+        return;
     }
     flutterResult(@"false");
 }
@@ -2043,13 +2350,84 @@
     PTAnnotationManager * const annotationManager = documentController.toolManager.annotationManager;
     
     NSError *updateError = nil;
-    const BOOL updateSuccess = [annotationManager updateAnnotationsWithXFDFString:xfdf
+    NSString *xfdfForImport = BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(xfdf);
+    const BOOL updateSuccess = [annotationManager updateAnnotationsWithXFDFString:xfdfForImport
                                                                             error:&updateError];
     if (!updateSuccess) {
         if (updateError) {
             NSLog(@"Error: There was an error while trying to import annotation command. %@", updateError.localizedDescription);
         }
         flutterResult([FlutterError errorWithCode:@"import_annotation_command" message:@"Failed to import annotation command" details:@"Error: There was an error while trying to import annotation command."]);
+    } else {
+        NSError *decorateError = nil;
+        [documentController.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
+            BauhubRestoreTranslucentAreaMarkupAppearancesInDoc(doc);
+            BauhubDecorateAllImportedAreaPins(documentController.pdfViewCtrl, doc);
+        } error:&decorateError];
+        if (decorateError) {
+            NSLog(@"BauhubDecorateAllImportedAreaPins: %@", decorateError.localizedDescription);
+        }
+        flutterResult(nil);
+    }
+}
+
+/// Merges XFDF into the document (FDFMerge). Use for partial XFDF chunks; `importAnnotations` uses update/replace semantics.
+- (void)mergeAnnotations:(NSString *)xfdf resultToken:(FlutterResult)flutterResult
+{
+    PTDocumentController *documentController = [self getDocumentController];
+    if (documentController.document == Nil) {
+        NSLog(@"Error: The document view controller has no document.");
+        flutterResult([FlutterError errorWithCode:@"merge_annotations" message:@"Failed to merge annotations" details:@"Error: The document view controller has no document."]);
+        return;
+    }
+
+    __block BOOL hasDownloader = NO;
+    NSError *error = nil;
+    [documentController.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
+        hasDownloader = [doc HasDownloader];
+    } error:&error];
+    if (hasDownloader) {
+        NSLog(@"Error: The document is still being downloaded.");
+        flutterResult([FlutterError errorWithCode:@"merge_annotations" message:@"Failed to merge annotations" details:@"Error: The document is still being downloaded."]);
+        return;
+    }
+
+    NSString *xfdfForImport = BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(xfdf);
+    if (xfdfForImport.length == 0) {
+        flutterResult(nil);
+        return;
+    }
+
+    NSString *tmpPath = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+    tmpPath = [tmpPath stringByAppendingPathExtension:@"xfdf"];
+    NSError *writeErr = nil;
+    if (![xfdfForImport writeToFile:tmpPath atomically:YES encoding:NSUTF8StringEncoding error:&writeErr]) {
+        NSLog(@"mergeAnnotations: temp XFDF write failed: %@", writeErr);
+        flutterResult([FlutterError errorWithCode:@"merge_annotations" message:@"Failed to write temp XFDF" details:writeErr.localizedDescription]);
+        return;
+    }
+
+    __block NSError *opError = nil;
+    NSError *lockError = nil;
+    [documentController.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
+        @try {
+            PTFDFDoc *fdfDoc = [PTFDFDoc CreateFromXFDF:tmpPath];
+            [doc FDFMerge:fdfDoc];
+            // No PTPDFDoc RefreshAnnotAppearances in this Tools SDK; Bauhub restore + Decorate + Update refresh the view.
+            BauhubRestoreTranslucentAreaMarkupAppearancesInDoc(doc);
+            BauhubDecorateAllImportedAreaPins(documentController.pdfViewCtrl, doc);
+        } @catch (NSException *ex) {
+            NSLog(@"mergeAnnotations: %@", ex);
+            opError = [NSError errorWithDomain:@"PdftronFlutter" code:-1 userInfo:@{NSLocalizedDescriptionKey: ex.reason ?: ex.name}];
+        }
+    } error:&lockError];
+
+    [[NSFileManager defaultManager] removeItemAtPath:tmpPath error:nil];
+
+    if (lockError) {
+        flutterResult([FlutterError errorWithCode:@"merge_annotations" message:@"Failed to merge annotations" details:lockError.localizedDescription]);
+    } else if (opError) {
+        flutterResult([FlutterError errorWithCode:@"merge_annotations" message:@"Failed to merge annotations" details:opError.localizedDescription]);
     } else {
         flutterResult(nil);
     }
@@ -2072,7 +2450,8 @@
     if (!annotationList) {
         [documentController.pdfViewCtrl DocLockReadWithBlock:^(PTPDFDoc * _Nullable doc) {
             PTFDFDoc *fdfDoc = [doc FDFExtract:e_ptboth];
-            flutterResult([fdfDoc SaveAsXFDFToString]);
+            NSString *raw = [fdfDoc SaveAsXFDFToString];
+            flutterResult(BauhubNormalizeBauhubAreaMarkupXfdfForWebParity(raw));
         }error:&error];
         
         if (error) {
@@ -2095,6 +2474,7 @@
     
     if (matchingAnnots.count == 0) {
         flutterResult(@"");
+        return;
     }
     
     PTVectorAnnot *resultAnnots = [[PTVectorAnnot alloc] init];
@@ -2106,7 +2486,7 @@
     [documentController.pdfViewCtrl DocLockReadWithBlock:^(PTPDFDoc * _Nullable doc) {
         
         PTFDFDoc *fdfDoc = [doc FDFExtractAnnots:resultAnnots];
-        resultString = [fdfDoc SaveAsXFDFToString];
+        resultString = BauhubNormalizeBauhubAreaMarkupXfdfForWebParity([fdfDoc SaveAsXFDFToString]);
         
     } error:&error];
     
@@ -2653,6 +3033,7 @@
 
     if (matchingAnnots.count == 0) {
         flutterResult(@"");
+        return;
     }
 
     // group the annotations
@@ -2712,6 +3093,7 @@
 
     if (matchingAnnots.count == 0) {
         flutterResult(@"");
+        return;
     }
 
     [documentController.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
@@ -2770,7 +3152,8 @@
     PTAnnotationManager * const annotationManager = documentController.toolManager.annotationManager;
     
     NSError *updateError = nil;
-    const BOOL updateSuccess = [annotationManager updateAnnotationsWithXFDFCommand:xfdfCommand
+    NSString *commandForImport = BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(xfdfCommand);
+    const BOOL updateSuccess = [annotationManager updateAnnotationsWithXFDFCommand:commandForImport
                                                                              error:&updateError];
     if (!updateSuccess) {
         if (updateError) {
@@ -2778,6 +3161,14 @@
         }
         flutterResult([FlutterError errorWithCode:@"import_annotation_command" message:@"Failed to import annotation command" details:@"Error: There was an error while trying to import annotation command."]);
     } else {
+        NSError *decorateError = nil;
+        [documentController.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
+            BauhubRestoreTranslucentAreaMarkupAppearancesInDoc(doc);
+            BauhubDecorateAllImportedAreaPins(documentController.pdfViewCtrl, doc);
+        } error:&decorateError];
+        if (decorateError) {
+            NSLog(@"Bauhub importAnnotationCommand decorate: %@", decorateError.localizedDescription);
+        }
         flutterResult(nil);
     }
 }
@@ -3147,6 +3538,12 @@
 
     if ([toolMode isEqualToString:PTAnnotationEditToolKey]) {
         // multi-select not implemented
+    } else if ([toolMode isEqualToString:@"BauhubCommentAreaTool"] || [toolMode isEqualToString:@"BauhubAttachmentAreaTool"] || [toolMode isEqualToString:@"BauhubTaskAreaTool"]) {
+        toolClass = [BauhubRectangleMarkupTool class];
+    } else if ([toolMode isEqualToString:@"BauhubCommentPolygonTool"] || [toolMode isEqualToString:@"BauhubAttachmentPolygonTool"]) {
+        toolClass = [BauhubPolygonMarkupTool class];
+    } else if ([toolMode isEqualToString:@"BauhubCommentStampTool"] || [toolMode isEqualToString:@"BauhubAttachmentStampTool"]) {
+        toolClass = [BauhubPinStampTool class];
     } else if ([toolMode containsString:@"BauhubTaskTool"]) {
         toolClass = [BauhubTaskTool class];
     } else if ([toolMode containsString:@"BauhubPlusIconTool"]) {
@@ -3242,8 +3639,44 @@
         }
 
         if ([tool isKindOfClass:[BauhubTaskTool class]]) {
-            NSString *colorCode = [toolMode substringFromIndex: [toolMode length] - 6];
-            [((BauhubTaskTool *)tool) setTaskImageName:[NSString stringWithFormat:@"%@%@", @"task_", colorCode]];
+            [((BauhubTaskTool *)tool) setTaskImageName:BauhubWebTaskPinImageName()];
+        }
+
+        if ([tool isKindOfClass:[BauhubPinStampTool class]]) {
+            BauhubPinStampTool *pinTool = (BauhubPinStampTool *)tool;
+            if ([toolMode isEqualToString:@"BauhubCommentStampTool"]) {
+                pinTool.pinImageName = @"bauhubCommentPin";
+                pinTool.pinSubject = @"Comment";
+            } else if ([toolMode isEqualToString:@"BauhubAttachmentStampTool"]) {
+                pinTool.pinImageName = @"bauhubAttachmentPin";
+                pinTool.pinSubject = @"Attachment";
+            }
+        }
+
+        if ([tool isKindOfClass:[BauhubRectangleMarkupTool class]]) {
+            BauhubRectangleMarkupTool *rectTool = (BauhubRectangleMarkupTool *)tool;
+            if ([toolMode isEqualToString:@"BauhubCommentAreaTool"]) {
+                rectTool.bauhubSubject = @"Comment";
+            } else if ([toolMode isEqualToString:@"BauhubAttachmentAreaTool"]) {
+                rectTool.bauhubSubject = @"Attachment";
+            } else if ([toolMode isEqualToString:@"BauhubTaskAreaTool"]) {
+                rectTool.bauhubSubject = @"Task";
+            }
+        }
+
+        if ([tool isKindOfClass:[BauhubPolygonMarkupTool class]]) {
+            BauhubPolygonMarkupTool *polyTool = (BauhubPolygonMarkupTool *)tool;
+            if ([toolMode isEqualToString:@"BauhubCommentPolygonTool"]) {
+                polyTool.bauhubSubject = @"Comment";
+            } else if ([toolMode isEqualToString:@"BauhubAttachmentPolygonTool"]) {
+                polyTool.bauhubSubject = @"Attachment";
+            }
+        }
+
+        // Apryse applies PTColorDefaults when finishing a square/polygon — same mechanism as the built-in Draw tools.
+        // Push Bauhub bar presets into PTColorDefaults so commit matches web (toolbar colours on mouse-up).
+        if ([tool isKindOfClass:[BauhubRectangleMarkupTool class]] || [tool isKindOfClass:[BauhubPolygonMarkupTool class]]) {
+            BauhubApplyAreaToolDrawPreviewDefaults(documentController.pdfViewCtrl);
         }
     }
 
@@ -4198,7 +4631,9 @@
 
         PTObjSet* hintSet = [[PTObjSet alloc] init];
         PTObj* encoderHints = [hintSet CreateArray];
-        [encoderHints PushBackName:@"JPEG"];
+        [encoderHints PushBackName:@"Flate"];
+        [encoderHints PushBackName:@"Level"];
+        [encoderHints PushBackNumber:9.0];
 
         PTImage* stampImage = [PTImage CreateWithDataSimple:[doc GetSDFDoc] buf:data buf_size:data.length encoder_hints:encoderHints];
 
@@ -4408,7 +4843,9 @@
 
         PTObjSet* hintSet = [[PTObjSet alloc] init];
         PTObj* encoderHints = [hintSet CreateArray];
-        [encoderHints PushBackName:@"JPEG"];
+        [encoderHints PushBackName:@"Flate"];
+        [encoderHints PushBackName:@"Level"];
+        [encoderHints PushBackNumber:9.0];
 
         PTImage* stampImage = [PTImage CreateWithDataSimple:[doc GetSDFDoc] buf:data buf_size:data.length encoder_hints:encoderHints];
 
@@ -4458,6 +4895,1292 @@
     UIGraphicsEndImageContext();
 
     return img;
+}
+
+@end
+
+#pragma mark - BauhubPinStampTool
+@interface BauhubPinStampTool () <UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate>
+
+@property (nonatomic, strong, nullable) UIImage *image;
+@property (nonatomic, strong, nullable) PTPDFPoint *touchPtPage;
+@property (nonatomic, assign) BOOL isPencilTouch;
+
+@end
+
+@implementation BauhubPinStampTool
+
+@dynamic isPencilTouch;
+
+- (Class)annotClass
+{
+    return [PTRubberStamp class];
+}
+
++ (PTExtendedAnnotType)annotType
+{
+    return PTExtendedAnnotTypeImageStamp;
+}
+
+- (BOOL)pdfViewCtrl:(PTPDFViewCtrl *)pdfViewCtrl onTouchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+    return YES;
+}
+
+- (BOOL)pdfViewCtrl:(PTPDFViewCtrl *)pdfViewCtrl onTouchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+    return YES;
+}
+
+- (BOOL)pdfViewCtrl:(PTPDFViewCtrl *)pdfViewCtrl onTouchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+    return YES;
+}
+
+- (BOOL)pdfViewCtrl:(PTPDFViewCtrl *)pdfViewCtrl handleTap:(UITapGestureRecognizer *)gestureRecognizer
+{
+    if( !(self.isPencilTouch == YES || self.toolManager.annotationsCreatedWithPencilOnly == NO) )
+    {
+        return YES;
+    }
+
+    CGPoint touchPoint = [gestureRecognizer locationInView:self.pdfViewCtrl];
+
+    int pageNumber = [self.pdfViewCtrl GetPageNumberFromScreenPt:touchPoint.x y:touchPoint.y];
+    if (pageNumber < 1) {
+        return YES;
+    }
+    _pageNumber = pageNumber;
+    self.endPoint = touchPoint;
+    self.touchPtPage = [self.pdfViewCtrl ConvScreenPtToPagePt:[[PTPDFPoint alloc] initWithPx:self.endPoint.x py:self.endPoint.y] page_num:_pageNumber];
+
+    NSString *imgName = (self.pinImageName != nil && self.pinImageName.length > 0) ? self.pinImageName : @"bauhubCommentPin";
+    UIImage *rawImage = BauhubLoadTemplateImageNamed(imgName);
+    // Runner sometimes omits bauhubAttachmentPin from the asset catalog; still create a stamp so Flutter gets annotationChanged.
+    if (!rawImage && [imgName isEqualToString:@"bauhubAttachmentPin"]) {
+        rawImage = BauhubLoadTemplateImageNamed(@"bauhubCommentPin");
+        if (rawImage) {
+            NSLog(@"BauhubPinStampTool: bauhubAttachmentPin not found in bundle, using bauhubCommentPin (subject remains Attachment)");
+        }
+    }
+    if (rawImage) {
+        self.image = [self correctForRotation:rawImage];
+        [self createImageStamp];
+    } else {
+        NSLog(@"BauhubPinStampTool: no image for '%@' — stamp not created", imgName);
+    }
+
+    return YES;
+}
+
+-(void)createImageStamp
+{
+    BOOL hasWriteLock = NO;
+
+    @try {
+        [self.pdfViewCtrl DocLock:YES];
+        hasWriteLock = YES;
+
+        PTPDFDoc *doc = [self.pdfViewCtrl GetDoc];
+        PTPage* page = [doc GetPage:self.pageNumber];
+        PTPDFRect* stampRect = [[PTPDFRect alloc] initWithX1:0 y1:0 x2:self.image.size.width y2:self.image.size.height];
+        double maxWidth = 25.0;
+        double maxHeight = 25.0;
+
+        PTRotate ctrlRotation = [self.pdfViewCtrl GetRotation];
+        PTRotate pageRotation = [page GetRotation];
+        PTRotate viewRotation = ((pageRotation + ctrlRotation) % 4);
+
+        if ([page GetPageWidth:(e_ptcrop)] < maxWidth)
+        {
+            maxWidth = [page GetPageWidth:(e_ptcrop)];
+        }
+        if ([page GetPageHeight:(e_ptcrop)] < maxHeight)
+        {
+            maxHeight = [page GetPageHeight:(e_ptcrop)];
+        }
+
+        if (viewRotation == e_pt90 || viewRotation == e_pt270) {
+            maxWidth = maxWidth + maxHeight;
+            maxHeight = maxWidth - maxHeight;
+            maxWidth = maxWidth - maxHeight;
+        }
+
+        CGFloat scaleFactor = MIN(maxWidth / [stampRect Width], maxHeight / [stampRect Height]);
+        CGFloat stampWidth = [stampRect Width] * scaleFactor;
+        CGFloat stampHeight = [stampRect Height] * scaleFactor;
+
+        if (ctrlRotation == e_pt90 || ctrlRotation == e_pt270) {
+            stampWidth = stampWidth + stampHeight;
+            stampHeight = stampWidth - stampHeight;
+            stampWidth = stampWidth - stampHeight;
+        }
+
+        PTStamper* stamper = [[PTStamper alloc] initWithSize_type:e_ptabsolute_size a:stampWidth b:stampHeight];
+        [stamper SetAlignment:e_pthorizontal_left vertical_alignment:e_ptvertical_bottom];
+        [stamper SetAsAnnotation:YES];
+
+        PTMatrix2D *mtx = [page GetDefaultMatrix:NO box_type:e_ptcrop angle:0];
+        self.touchPtPage = [mtx Mult:self.touchPtPage];
+
+        CGFloat xPos = [self.touchPtPage getX] - (stampWidth / 2);
+        CGFloat yPos = [self.touchPtPage getY] - (stampHeight / 2);
+
+        double pageWidth = [page GetPageWidth:(e_ptcrop)];
+        if (xPos > pageWidth - stampWidth) { xPos = pageWidth - stampWidth; }
+        if (xPos < 0) { xPos = 0; }
+        double pageHeight = [page GetPageHeight:(e_ptcrop)];
+        if (yPos > pageHeight - stampHeight) { yPos = pageHeight - stampHeight; }
+        if (yPos < 0) { yPos = 0; }
+
+        [stamper SetPosition:xPos vertical_distance:yPos use_percentage:NO];
+
+        PTPageSet* pageSet = [[PTPageSet alloc] initWithOne_page:self.pageNumber];
+
+        NSData* data = UIImagePNGRepresentation(self.image);
+
+        PTObjSet* hintSet = [[PTObjSet alloc] init];
+        PTObj* encoderHints = [hintSet CreateArray];
+        [encoderHints PushBackName:@"Flate"];
+        [encoderHints PushBackName:@"Level"];
+        [encoderHints PushBackNumber:9.0];
+
+        PTImage* stampImage = [PTImage CreateWithDataSimple:[doc GetSDFDoc] buf:data buf_size:data.length encoder_hints:encoderHints];
+
+        PTRotate stampRotation = (4 - ctrlRotation) % 4;
+        [stamper SetRotation:stampRotation * 90.0];
+        [stamper StampImage:doc src_img:stampImage dest_pages:pageSet];
+
+        int numAnnots = [page GetNumAnnots];
+        assert(numAnnots > 0);
+
+        PTAnnot* annot = [page GetAnnot:numAnnots - 1];
+        PTObj* obj = [annot GetSDFObj];
+        [obj PutString:PTImageStampAnnotationIdentifier value:@""];
+        [obj PutNumber:PTImageStampAnnotationRotationDegreeIdentifier value:0.0];
+
+        NSString *subject = (self.pinSubject != nil && self.pinSubject.length > 0) ? self.pinSubject : @"Comment";
+        PTMarkup *markupAnnot = [[PTMarkup alloc] initWithAnn:annot];
+        if ([markupAnnot IsValid]) {
+            [markupAnnot SetSubject:subject];
+        }
+
+        self.currentAnnotation = annot;
+        [self.currentAnnotation RefreshAppearance];
+
+        self.annotationPageNumber = self.pageNumber;
+
+        [self.pdfViewCtrl UpdateWithAnnot:annot page_num:self.pageNumber];
+
+    } @catch (NSException *exception) {
+        NSLog(@"Exception: %@, %@", exception.name, exception.reason);
+    } @finally {
+        if (hasWriteLock) {
+            [self.pdfViewCtrl DocUnlock];
+        }
+    }
+
+    if (self.currentAnnotation && self.annotationPageNumber > 0) {
+        [self annotationAdded:self.currentAnnotation onPageNumber:self.annotationPageNumber];
+    }
+    // Apryse iOS Tools: backToDefaultTool was removed; switch explicitly to pan (same as Flutter setToolMode @"" / "Pan").
+    if (self.toolManager != nil) {
+        [self.toolManager changeTool:[PTPanTool class]];
+    }
+}
+
+-(UIImage*)correctForRotation:(UIImage*)src
+{
+    UIGraphicsBeginImageContext(src.size);
+    [src drawAtPoint:CGPointMake(0, 0)];
+    UIImage* img =  UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return img;
+}
+
+@end
+
+#pragma mark - Bauhub area pin on Comment / Attachment squares & polygons
+
+static NSString * const kBauhubAreaPinCustomKey = @"BauhubAreaPin";
+static NSString * const kBauhubDecorativeAreaPinKey = @"BauhubDecorativeAreaPin";
+static NSString * const kBauhubParentShapeUidKey = @"BauhubParentShapeUid";
+/// Fixed PDF corner when resizing (left = min x, top = max y), same as web pin box top-left in page space.
+static NSString * const kBauhubPinPageAx = @"BauhubPinPageAx";
+static NSString * const kBauhubPinPageAy = @"BauhubPinPageAy";
+static const double kBauhubAreaPinMaxPageSpan = 25.0;
+
+void PTBauhubRemoveDecorativePinsWhenParentShapeRemoved(
+        PTPDFViewCtrl *pdfViewCtrl,
+        PTPDFDoc *doc,
+        PTAnnot *shapeAnnot,
+        int pageNumber) {
+    if (!pdfViewCtrl || !doc || !shapeAnnot || ![shapeAnnot IsValid]) {
+        return;
+    }
+    PTAnnotType t = [shapeAnnot GetType];
+    if (t != e_ptSquare && t != e_ptPolygon) {
+        return;
+    }
+    PTMarkup *mk = [[PTMarkup alloc] initWithAnn:shapeAnnot];
+    if (![mk IsValid]) {
+        return;
+    }
+    NSString *subj = [mk GetSubject];
+    if (!([subj isEqualToString:@"Comment"] || [subj isEqualToString:@"Attachment"] ||
+          [subj isEqualToString:@"Task"])) {
+        return;
+    }
+    NSString *parentUid = nil;
+    @try {
+        PTObj *uidObj = [shapeAnnot GetUniqueID];
+        if ([uidObj IsValid] && [uidObj IsString]) {
+            parentUid = [uidObj GetAsPDFText];
+        }
+    } @catch (__unused NSException *e) {
+    }
+    if (parentUid.length == 0) {
+        return;
+    }
+    if (pageNumber < 1) {
+        return;
+    }
+    PTPage *page = [doc GetPage:pageNumber];
+    if (!page || ![page IsValid]) {
+        return;
+    }
+    NSMutableArray<PTAnnot *> *toRemove = [NSMutableArray array];
+    int n = (int)[page GetNumAnnots];
+    for (int i = 0; i < n; i++) {
+        PTAnnot *a = [page GetAnnot:i];
+        if (![a IsValid] || [a GetType] != e_ptStamp) {
+            continue;
+        }
+        NSString *dec = nil;
+        @try {
+            dec = [a GetCustomData:kBauhubDecorativeAreaPinKey];
+        } @catch (__unused NSException *e) {
+        }
+        if (dec.length == 0) {
+            continue;
+        }
+        NSString *puid = nil;
+        @try {
+            puid = [a GetCustomData:kBauhubParentShapeUidKey];
+        } @catch (__unused NSException *e) {
+        }
+        if (puid != nil && [puid isEqualToString:parentUid]) {
+            [toRemove addObject:a];
+        }
+    }
+    for (PTAnnot *st in toRemove) {
+        @try {
+            [page AnnotRemoveWithAnnot:st];
+        } @catch (__unused NSException *e) {
+        }
+    }
+    if (toRemove.count > 0) {
+        [pdfViewCtrl Update:YES];
+    }
+}
+
+/// Flutter may send ARGB as NSNumber (incl. double/long long) or string; returns NO if absent/unsupported (0xFFFFFFFF white is valid).
+static BOOL BauhubTryUint32FromFlutterColorArg(id value, NSUInteger *outArgb) {
+    if (value == nil || value == [NSNull null] || outArgb == NULL) {
+        return NO;
+    }
+    if ([value isKindOfClass:[NSNumber class]]) {
+        NSNumber *n = (NSNumber *)value;
+        // Match Android PluginUtils: preserve low 32 bits (ARGB may arrive as signed int or double).
+        long long ll = [n longLongValue];
+        *outArgb = (NSUInteger)((uint32_t)ll);
+        return YES;
+    }
+    if ([value isKindOfClass:[NSString class]]) {
+        NSString *s = [(NSString *)value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (s.length == 0) {
+            return NO;
+        }
+        const char *c = [s UTF8String];
+        char *end = NULL;
+        unsigned long parsed = strtoul(c, &end, 0);
+        if (end == c) {
+            return NO;
+        }
+        *outArgb = (NSUInteger)(parsed & 0xFFFFFFFFULL);
+        return YES;
+    }
+    return NO;
+}
+
+/// Matches bauhub-fe PdfTronTools.ts taskPinColor #DD1111 (not category color). Prefer task_dd1111 in bundle.
+static UIImage *BauhubLoadTemplateImageNamed(NSString *name) {
+    if (name.length == 0) {
+        return nil;
+    }
+    UIImage *img = [UIImage imageNamed:name];
+    if (img) {
+        return img;
+    }
+    NSBundle *pluginBundle = [NSBundle bundleForClass:[PdftronFlutterPlugin class]];
+    img = [UIImage imageNamed:name inBundle:pluginBundle compatibleWithTraitCollection:nil];
+    if (img) {
+        return img;
+    }
+    return [UIImage imageNamed:name inBundle:[NSBundle mainBundle] compatibleWithTraitCollection:nil];
+}
+
+static NSString *BauhubWebTaskPinImageName(void) {
+    UIImage *dd = BauhubLoadTemplateImageNamed(@"task_dd1111");
+    return dd != nil ? @"task_dd1111" : @"task_111111";
+}
+
+static UIImage *BauhubAreaPinCorrectImage(UIImage *src) {
+    if (!src) {
+        return nil;
+    }
+    UIGraphicsBeginImageContext(src.size);
+    [src drawAtPoint:CGPointMake(0, 0)];
+    UIImage *img = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return img;
+}
+
+static BOOL BauhubAnnotShouldReceiveAreaPin(PTAnnot *annot) {
+    if (![annot IsValid]) {
+        return NO;
+    }
+    PTAnnotType t = [annot GetType];
+    if (t != e_ptSquare && t != e_ptPolygon) {
+        return NO;
+    }
+    PTMarkup *m = [[PTMarkup alloc] initWithAnn:annot];
+    if (![m IsValid]) {
+        return NO;
+    }
+    NSString *subj = [m GetSubject];
+    return [subj isEqualToString:@"Comment"] || [subj isEqualToString:@"Attachment"] || [subj isEqualToString:@"Task"];
+}
+
+static BOOL BauhubPageHasPinStampNearShapeCorner(PTPage *page, PTPDFRect *bbox, NSString *subject) {
+    if (!page || subject.length == 0) {
+        return NO;
+    }
+    double x1 = [bbox GetX1], y1 = [bbox GetY1], x2 = [bbox GetX2], y2 = [bbox GetY2];
+    double minX = MIN(x1, x2);
+    double maxY = MAX(y1, y2);
+    double targetX = minX + 4.0 + 12.0;
+    double targetY = maxY - 4.0 - 12.0;
+    int n = [page GetNumAnnots];
+    for (int i = 0; i < n; i++) {
+        PTAnnot *a = [page GetAnnot:i];
+        if (![a IsValid] || [a GetType] != e_ptStamp) {
+            continue;
+        }
+        NSString *dec = nil;
+        @try {
+            dec = [a GetCustomData:kBauhubDecorativeAreaPinKey];
+        } @catch (__unused NSException *e) {
+            dec = nil;
+        }
+        PTPDFRect *r = [a GetRect];
+        double cx = ([r GetX1] + [r GetX2]) / 2.0;
+        double cy = ([r GetY1] + [r GetY2]) / 2.0;
+        double dx = cx - targetX;
+        double dy = cy - targetY;
+        if (sqrt(dx * dx + dy * dy) >= 40.0) {
+            continue;
+        }
+        // Only decorative area pins count — a normal Comment/Attachment *point* stamp nearby used to match here and skip stamping.
+        if (dec != nil && dec.length > 0) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+/// Locate which page contains this annot (currentPage is often 0 while RectangleCreate finishes).
+static int BauhubFindPageNumberForAnnotInDoc(PTPDFDoc *doc, PTAnnot *target) {
+    if (!doc || !target || ![target IsValid]) {
+        return -1;
+    }
+    PTObj *targetObj = [target GetSDFObj];
+    if (![targetObj IsValid]) {
+        return -1;
+    }
+    int targetNum = (int)[targetObj GetObjNum];
+    int targetGen = (int)[targetObj GetGenNum];
+    int pageCount = (int)[doc GetPageCount];
+    for (int p = 1; p <= pageCount; p++) {
+        PTPage *page = [doc GetPage:p];
+        if (!page || ![page IsValid]) {
+            continue;
+        }
+        int n = [page GetNumAnnots];
+        for (int j = 0; j < n; j++) {
+            PTAnnot *a = [page GetAnnot:j];
+            if (![a IsValid]) {
+                continue;
+            }
+            PTObj *o = [a GetSDFObj];
+            if ([o IsValid] && (int)[o GetObjNum] == targetNum && (int)[o GetGenNum] == targetGen) {
+                return p;
+            }
+        }
+    }
+    return -1;
+}
+
+static void BauhubStampPinForAreaShapeImpl(PTPDFViewCtrl *pdfViewCtrl, PTPDFDoc *doc, int pageNumber, PTAnnot *shapeAnnot, BOOL allowDeferredRetry);
+
+/// Caller must hold a write lock on the document (same as Bauhub pin stamper paths).
+static void BauhubStampPinForAreaShape(PTPDFViewCtrl *pdfViewCtrl, PTPDFDoc *doc, int pageNumber, PTAnnot *shapeAnnot) {
+    BauhubStampPinForAreaShapeImpl(pdfViewCtrl, doc, pageNumber, shapeAnnot, YES);
+}
+
+static void BauhubStampPinForAreaShapeImpl(PTPDFViewCtrl *pdfViewCtrl, PTPDFDoc *doc, int pageNumber, PTAnnot *shapeAnnot, BOOL allowDeferredRetry) {
+    if (!pdfViewCtrl || !doc || ![shapeAnnot IsValid]) {
+        return;
+    }
+    if (!BauhubAnnotShouldReceiveAreaPin(shapeAnnot)) {
+        return;
+    }
+
+    int pnum = BauhubFindPageNumberForAnnotInDoc(doc, shapeAnnot);
+    if (pnum < 1) {
+        pnum = pageNumber;
+    }
+    if (pnum < 1) {
+        pnum = (int)pdfViewCtrl.currentPage;
+    }
+    if (pnum < 1) {
+        if (allowDeferredRetry) {
+            __weak PTPDFViewCtrl *weakCtrl = pdfViewCtrl;
+            __weak PTPDFDoc *weakDoc = doc;
+            __weak PTAnnot *weakAnnot = shapeAnnot;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                PTPDFViewCtrl *c = weakCtrl;
+                PTPDFDoc *d = weakDoc;
+                PTAnnot *a = weakAnnot;
+                if (!c || !d || ![a IsValid]) {
+                    return;
+                }
+                int cp = (int)c.currentPage;
+                if (cp < 1) {
+                    cp = BauhubFindPageNumberForAnnotInDoc(d, a);
+                }
+                if (cp < 1) {
+                    return;
+                }
+                BauhubStampPinForAreaShapeImpl(c, d, cp, a, NO);
+            });
+        }
+        return;
+    }
+
+    int pageCount = [doc GetPageCount];
+    if (pageCount < 1) {
+        return;
+    }
+    if (pnum > pageCount) {
+        pnum = pageCount;
+    }
+
+    PTPage *page = [doc GetPage:pnum];
+    if (!page || ![page IsValid]) {
+        return;
+    }
+
+    PTMarkup *shapeMarkup = [[PTMarkup alloc] initWithAnn:shapeAnnot];
+    NSString *subj = [shapeMarkup GetSubject];
+    PTPDFRect *bbox = [shapeAnnot GetRect];
+    // Only skip when a Bauhub decorative stamp is already near the corner — not when BauhubAreaPin is set on the shape.
+    if (BauhubPageHasPinStampNearShapeCorner(page, bbox, subj)) {
+        @try {
+            [shapeAnnot SetCustomData:kBauhubAreaPinCustomKey value:@"1"];
+        } @catch (__unused NSException *e) {
+        }
+        return;
+    }
+
+    NSString *imgName = @"bauhubCommentPin";
+    if ([subj isEqualToString:@"Attachment"]) {
+        imgName = @"bauhubAttachmentPin";
+    } else if ([subj isEqualToString:@"Task"]) {
+        imgName = BauhubWebTaskPinImageName();
+    }
+    UIImage *rawImage = BauhubLoadTemplateImageNamed(imgName);
+    if (!rawImage && [subj isEqualToString:@"Task"]) {
+        rawImage = BauhubLoadTemplateImageNamed(@"task_111111");
+    }
+    if (!rawImage) {
+        NSLog(@"BauhubStampPinForAreaShape: missing pin image '%@' (check app / plugin bundle assets)", imgName);
+        return;
+    }
+    UIImage *image = BauhubAreaPinCorrectImage(rawImage);
+    if (!image) {
+        return;
+    }
+
+    @try {
+        double x1 = [bbox GetX1], y1 = [bbox GetY1], x2 = [bbox GetX2], y2 = [bbox GetY2];
+        double minX = MIN(x1, x2);
+        double maxY = MAX(y1, y2);
+
+        PTPDFRect *stampRect = [[PTPDFRect alloc] initWithX1:0 y1:0 x2:image.size.width y2:image.size.height];
+        double maxWidth = 25.0;
+        double maxHeight = 25.0;
+
+        PTRotate ctrlRotation = [pdfViewCtrl GetRotation];
+        PTRotate pageRotation = [page GetRotation];
+        PTRotate viewRotation = ((pageRotation + ctrlRotation) % 4);
+
+        if ([page GetPageWidth:(e_ptcrop)] < maxWidth) {
+            maxWidth = [page GetPageWidth:(e_ptcrop)];
+        }
+        if ([page GetPageHeight:(e_ptcrop)] < maxHeight) {
+            maxHeight = [page GetPageHeight:(e_ptcrop)];
+        }
+
+        if (viewRotation == e_pt90 || viewRotation == e_pt270) {
+            maxWidth = maxWidth + maxHeight;
+            maxHeight = maxWidth - maxHeight;
+            maxWidth = maxWidth - maxHeight;
+        }
+
+        CGFloat scaleFactor = MIN(maxWidth / [stampRect Width], maxHeight / [stampRect Height]);
+        CGFloat stampWidth = [stampRect Width] * scaleFactor;
+        CGFloat stampHeight = [stampRect Height] * scaleFactor;
+
+        if (ctrlRotation == e_pt90 || ctrlRotation == e_pt270) {
+            stampWidth = stampWidth + stampHeight;
+            stampHeight = stampWidth - stampHeight;
+            stampWidth = stampWidth - stampHeight;
+        }
+
+        PTStamper *stamper = [[PTStamper alloc] initWithSize_type:e_ptabsolute_size a:stampWidth b:stampHeight];
+        [stamper SetAlignment:e_pthorizontal_left vertical_alignment:e_ptvertical_bottom];
+        [stamper SetAsAnnotation:YES];
+
+        /* Same as point pins: anchor is stamp center in page space, then default matrix, then -w/2 -h/2 */
+        double anchorX = minX + 4.0 + stampWidth / 2.0;
+        double anchorY = maxY - 4.0 - stampHeight / 2.0;
+        PTMatrix2D *mtx = [page GetDefaultMatrix:NO box_type:e_ptcrop angle:0];
+        PTPDFPoint *pagePt = [[PTPDFPoint alloc] initWithPx:anchorX py:anchorY];
+        pagePt = [mtx Mult:pagePt];
+
+        CGFloat xPos = [pagePt getX] - (stampWidth / 2.0);
+        CGFloat yPos = [pagePt getY] - (stampHeight / 2.0);
+
+        double pageWidth = [page GetPageWidth:(e_ptcrop)];
+        if (xPos > pageWidth - stampWidth) {
+            xPos = pageWidth - stampWidth;
+        }
+        if (xPos < 0) {
+            xPos = 0;
+        }
+        double pageHeight = [page GetPageHeight:(e_ptcrop)];
+        if (yPos > pageHeight - stampHeight) {
+            yPos = pageHeight - stampHeight;
+        }
+        if (yPos < 0) {
+            yPos = 0;
+        }
+
+        [stamper SetPosition:xPos vertical_distance:yPos use_percentage:NO];
+
+        PTPageSet *pageSet = [[PTPageSet alloc] initWithOne_page:pnum];
+        NSData *data = UIImagePNGRepresentation(image);
+        PTObjSet *hintSet = [[PTObjSet alloc] init];
+        PTObj *encoderHints = [hintSet CreateArray];
+        [encoderHints PushBackName:@"Flate"];
+        [encoderHints PushBackName:@"Level"];
+        [encoderHints PushBackNumber:9.0];
+        PTImage *stampImage = [PTImage CreateWithDataSimple:[doc GetSDFDoc] buf:data buf_size:data.length encoder_hints:encoderHints];
+
+        PTRotate stampRotation = (4 - ctrlRotation) % 4;
+        [stamper SetRotation:stampRotation * 90.0];
+        [stamper StampImage:doc src_img:stampImage dest_pages:pageSet];
+
+        int numAnnots = [page GetNumAnnots];
+        if (numAnnots < 1) {
+            return;
+        }
+        PTAnnot *stampAnnot = [page GetAnnot:numAnnots - 1];
+        PTObj *obj = [stampAnnot GetSDFObj];
+        [obj PutString:PTImageStampAnnotationIdentifier value:@""];
+        [obj PutNumber:PTImageStampAnnotationRotationDegreeIdentifier value:0.0];
+
+        PTMarkup *markupAnnot = [[PTMarkup alloc] initWithAnn:stampAnnot];
+        if ([markupAnnot IsValid] && subj.length > 0) {
+            [markupAnnot SetSubject:subj];
+            @try {
+                [markupAnnot SetContents:@""];
+            } @catch (__unused NSException *e) {
+            }
+        }
+        @try {
+            [stampAnnot SetCustomData:kBauhubDecorativeAreaPinKey value:@"1"];
+            @try {
+                PTObj *shapeUidObj = [shapeAnnot GetUniqueID];
+                if ([shapeUidObj IsValid] && [shapeUidObj IsString]) {
+                    NSString *uid = [shapeUidObj GetAsPDFText];
+                    if (uid.length > 0) {
+                        [stampAnnot SetCustomData:kBauhubParentShapeUidKey value:uid];
+                    }
+                }
+            } @catch (__unused NSException *e) {
+            }
+            PTPDFRect *cr = [stampAnnot GetRect];
+            double ax = MIN([cr GetX1], [cr GetX2]);
+            double ay = MAX([cr GetY1], [cr GetY2]);
+            [stampAnnot SetCustomData:kBauhubPinPageAx value:[NSString stringWithFormat:@"%.8f", ax]];
+            [stampAnnot SetCustomData:kBauhubPinPageAy value:[NSString stringWithFormat:@"%.8f", ay]];
+            [stampAnnot SetFlag:e_ptlocked value:YES];
+        } @catch (__unused NSException *e) {
+        }
+        [stampAnnot RefreshAppearance];
+
+        [shapeAnnot SetCustomData:kBauhubAreaPinCustomKey value:@"1"];
+        // Do NOT call applyBauhubMarkupStyle here: BauhubDecorateAllImportedAreaPins also uses this path and must
+        // keep each shape's embedded fill/stroke from the PDF (same as web — import does not recolor).
+
+        [pdfViewCtrl UpdateWithAnnot:stampAnnot page_num:pnum];
+        [pdfViewCtrl UpdateWithAnnot:shapeAnnot page_num:pnum];
+        BauhubScheduleDecorativeAreaPinZoomSync(pdfViewCtrl);
+    } @catch (NSException *exception) {
+        NSLog(@"BauhubStampPinForAreaShape: %@", exception.reason);
+    }
+}
+
+/// Stamp after the rectangle tool finishes its create transaction; avoids StampImage failing silently under tool DocLock.
+static void BauhubScheduleAreaPinStamp(PTPDFViewCtrl *pdfViewCtrl, int pageHint, PTAnnot *shapeAnnot) {
+    if (!pdfViewCtrl || !shapeAnnot) {
+        return;
+    }
+    __weak PTPDFViewCtrl *weakPvc = pdfViewCtrl;
+    __weak PTAnnot *weakAnn = shapeAnnot;
+    int hint = pageHint;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        PTPDFViewCtrl *pvc = weakPvc;
+        PTAnnot *ann = weakAnn;
+        if (!pvc || !ann || ![ann IsValid]) {
+            return;
+        }
+        NSError *err = nil;
+        [pvc DocLock:YES withBlock:^(PTPDFDoc *doc) {
+            int pnum = BauhubFindPageNumberForAnnotInDoc(doc, ann);
+            if (pnum < 1) {
+                pnum = hint;
+            }
+            if (pnum < 1) {
+                pnum = (int)pvc.currentPage;
+            }
+            if (pnum < 1) {
+                return;
+            }
+            BauhubStampPinForAreaShape(pvc, doc, pnum, ann);
+        } error:&err];
+        if (err) {
+            NSLog(@"BauhubScheduleAreaPinStamp: %@", err);
+        }
+    });
+}
+
+static void BauhubDecorateAllImportedAreaPins(PTPDFViewCtrl *pdfViewCtrl, PTPDFDoc *doc) {
+    if (!pdfViewCtrl || !doc) {
+        return;
+    }
+    int pageCount = [doc GetPageCount];
+    for (int p = 1; p <= pageCount; p++) {
+        PTPage *page = [doc GetPage:p];
+        int n = [page GetNumAnnots];
+        NSMutableArray<PTAnnot *> *targets = [NSMutableArray array];
+        for (int i = 0; i < n; i++) {
+            PTAnnot *a = [page GetAnnot:i];
+            if (!BauhubAnnotShouldReceiveAreaPin(a)) {
+                continue;
+            }
+            // Do not skip based on BauhubAreaPin custom data alone: XFDF/server flows can keep the flag on
+            // the square while the decorative stamp annot never persisted. Stamping uses geometry + decorative key.
+            [targets addObject:a];
+        }
+        for (PTAnnot *shape in targets) {
+            BauhubStampPinForAreaShape(pdfViewCtrl, doc, p, shape);
+        }
+    }
+    [pdfViewCtrl Update:YES];
+    BauhubScheduleDecorativeAreaPinZoomSync(pdfViewCtrl);
+}
+
+static dispatch_block_t sBauhubPinZoomBlock;
+
+static void BauhubScheduleDecorativeAreaPinZoomSync(PTPDFViewCtrl *pdfViewCtrl) {
+    if (!pdfViewCtrl) {
+        return;
+    }
+    if (sBauhubPinZoomBlock) {
+        dispatch_block_cancel(sBauhubPinZoomBlock);
+        sBauhubPinZoomBlock = nil;
+    }
+    __weak PTPDFViewCtrl *weakCtrl = pdfViewCtrl;
+    sBauhubPinZoomBlock = dispatch_block_create(0, ^{
+        sBauhubPinZoomBlock = nil;
+        PTPDFViewCtrl *c = weakCtrl;
+        if (c) {
+            BauhubSyncDecorativeAreaPinSizesNow(c);
+        }
+    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(48 * NSEC_PER_MSEC)), dispatch_get_main_queue(), sBauhubPinZoomBlock);
+}
+
+static void BauhubSyncDecorativeAreaPinSizesNow(PTPDFViewCtrl *pdfViewCtrl) {
+    if (!pdfViewCtrl) {
+        return;
+    }
+    CGFloat px = 24.0f * [UIScreen mainScreen].scale;
+    NSError *err = nil;
+    [pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc *doc) {
+        int pageCount = (int)[doc GetPageCount];
+        for (int p = 1; p <= pageCount; p++) {
+            PTPage *page = [doc GetPage:p];
+            int n = (int)[page GetNumAnnots];
+            for (int i = 0; i < n; i++) {
+                PTAnnot *a = [page GetAnnot:i];
+                if (![a IsValid] || [a GetType] != e_ptStamp) {
+                    continue;
+                }
+                NSString *dec = nil;
+                @try {
+                    dec = [a GetCustomData:kBauhubDecorativeAreaPinKey];
+                } @catch (__unused NSException *e) {
+                    dec = nil;
+                }
+                if (dec == nil || dec.length == 0) {
+                    continue;
+                }
+                PTPDFRect *screen = [pdfViewCtrl GetScreenRectForAnnot:a page_num:p];
+                if (!screen) {
+                    continue;
+                }
+                double sw = fabs([screen GetX2] - [screen GetX1]);
+                double sh = fabs([screen GetY2] - [screen GetY1]);
+                if (sw < 2.0 && sh < 2.0) {
+                    continue;
+                }
+                double scx = ([screen GetX1] + [screen GetX2]) / 2.0;
+                double scy = ([screen GetY1] + [screen GetY2]) / 2.0;
+
+                PTPDFPoint *pc = [pdfViewCtrl ConvScreenPtToPagePt:[[PTPDFPoint alloc] initWithPx:scx py:scy] page_num:p];
+                PTPDFPoint *prx = [pdfViewCtrl ConvScreenPtToPagePt:[[PTPDFPoint alloc] initWithPx:scx + px py:scy] page_num:p];
+                PTPDFPoint *pry = [pdfViewCtrl ConvScreenPtToPagePt:[[PTPDFPoint alloc] initWithPx:scx py:scy + px] page_num:p];
+                double spanH = hypot([prx getX] - [pc getX], [prx getY] - [pc getY]);
+                double spanV = hypot([pry getX] - [pc getX], [pry getY] - [pc getY]);
+                double span = MAX(spanH, spanV);
+                if (span < 0.25) {
+                    span = 0.25;
+                }
+                if (span > kBauhubAreaPinMaxPageSpan) {
+                    span = kBauhubAreaPinMaxPageSpan;
+                }
+
+                double ax;
+                double ay;
+                @try {
+                    NSString *sx = [a GetCustomData:kBauhubPinPageAx];
+                    NSString *sy = [a GetCustomData:kBauhubPinPageAy];
+                    if (sx.length > 0 && sy.length > 0) {
+                        ax = [sx doubleValue];
+                        ay = [sy doubleValue];
+                    } else {
+                        PTPDFRect *pr = [a GetRect];
+                        ax = MIN([pr GetX1], [pr GetX2]);
+                        ay = MAX([pr GetY1], [pr GetY2]);
+                        [a SetCustomData:kBauhubPinPageAx value:[NSString stringWithFormat:@"%.8f", ax]];
+                        [a SetCustomData:kBauhubPinPageAy value:[NSString stringWithFormat:@"%.8f", ay]];
+                    }
+                } @catch (__unused NSException *e) {
+                    PTPDFRect *pr = [a GetRect];
+                    ax = MIN([pr GetX1], [pr GetX2]);
+                    ay = MAX([pr GetY1], [pr GetY2]);
+                }
+
+                double left = ax;
+                double top = ay;
+                double right = left + span;
+                double bottom = top - span;
+                PTPDFRect *newRect = [[PTPDFRect alloc] initWithX1:left y1:bottom x2:right y2:top];
+                [a SetRect:newRect];
+                [a RefreshAppearance];
+                [pdfViewCtrl UpdateWithAnnot:a page_num:p];
+            }
+        }
+    } error:&err];
+    if (err) {
+        NSLog(@"BauhubSyncDecorativeAreaPinSizesNow: %@", err);
+    }
+}
+
+#pragma mark - BauhubRectangleMarkupTool
+
+static NSUInteger sBauhubAreaFillArgb = 0xFF2368E5;
+static NSUInteger sBauhubAreaStrokeArgb = 0xFF2368E5;
+/// Matches bauhub-fe PdfTronTools.ts `this.StrokeThickness || 1` in applyPinIconDraw.
+static const double kBauhubAreaStrokeWidth = 1.0;
+/// Matches web `annotation.Opacity = 0.3` for the **fill**; stroke stays opaque in the custom appearance stream.
+static const CGFloat kBauhubAreaMarkupOpacity = 0.3f;
+
+static void BauhubZeroSquarePolygonBorderForCustomAppearance(PTAnnot *annot);
+static void BauhubConfigureAreaMarkupDrawingContext(CGContextRef ctx);
+
+static NSUInteger BauhubNormalizeArgb(NSUInteger c) {
+    return 0xFF000000 | (c & 0xFFFFFF);
+}
+
+static PTColorPt *BauhubColorPtFromOpaqueArgb(NSUInteger argb) {
+    argb = BauhubNormalizeArgb(argb);
+    double r = ((argb >> 16) & 0xFF) / 255.0;
+    double g = ((argb >> 8) & 0xFF) / 255.0;
+    double b = (argb & 0xFF) / 255.0;
+    return [[PTColorPt alloc] initWithX:r y:g z:b w:0.0];
+}
+
+static NSUInteger BauhubRgbArgbFromColorPt(PTColorPt *c) {
+    if (!c) {
+        return sBauhubAreaFillArgb;
+    }
+    int r = (int)round([c Get:0] * 255.0);
+    int g = (int)round([c Get:1] * 255.0);
+    int b = (int)round([c Get:2] * 255.0);
+    r = MAX(0, MIN(255, r));
+    g = MAX(0, MIN(255, g));
+    b = MAX(0, MIN(255, b));
+    return 0xFF000000u | ((NSUInteger)r << 16) | ((NSUInteger)g << 8) | (NSUInteger)b;
+}
+
+static PTColorPt *BauhubFillBlendedTowardWhite(NSUInteger argb, double t) {
+    argb = BauhubNormalizeArgb(argb);
+    int r = (int)((argb >> 16) & 0xFF);
+    int g = (int)((argb >> 8) & 0xFF);
+    int b = (int)(argb & 0xFF);
+    int r2 = (int)round(255.0 + (r - 255.0) * t);
+    int g2 = (int)round(255.0 + (g - 255.0) * t);
+    int b2 = (int)round(255.0 + (b - 255.0) * t);
+    r2 = MAX(0, MIN(255, r2));
+    g2 = MAX(0, MIN(255, g2));
+    b2 = MAX(0, MIN(255, b2));
+    return [[PTColorPt alloc] initWithX:r2 / 255.0 y:g2 / 255.0 z:b2 / 255.0 w:0.0];
+}
+
+static BOOL BauhubPolyLineAppendClosedPath(PTElementBuilder *builder, PTPolyLine *pline) {
+    if (!builder || !pline || ![pline IsValid]) {
+        return NO;
+    }
+    int vc = (int)[pline GetVertexCount];
+    if (vc < 3) {
+        return NO;
+    }
+    [builder PathBegin];
+    PTPDFPoint *p0 = [pline GetVertex:0];
+    [builder MoveTo:[p0 getX] y:[p0 getY]];
+    for (int i = 1; i < vc; i++) {
+        PTPDFPoint *pi = [pline GetVertex:i];
+        [builder LineTo:[pi getX] y:[pi getY]];
+    }
+    [builder ClosePath];
+    return YES;
+}
+
+/// Standard `RefreshAppearance` draws an **opaque** interior. Web uses canvas alpha on the fill only; mirror with `ca` / `CA` in the AP stream.
+static BOOL BauhubSetTranslucentAreaMarkupAppearance(
+    PTAnnot *annot,
+    PTPDFDoc *doc,
+    PTColorPt *fill,
+    PTColorPt *stroke,
+    double fillOpacity,
+    double lineWidth,
+    double minSquareSide) {
+    if (!annot || !doc || !fill || !stroke || ![annot IsValid]) {
+        return NO;
+    }
+    if (fillOpacity < 0.0 || fillOpacity > 1.0) {
+        return NO;
+    }
+    PTAnnotType t = [annot GetType];
+    double sqLX = 0, sqLY = 0, sqW = 0, sqH = 0;
+    PTPolyLine *polygonLine = nil;
+    if (t == e_ptSquare) {
+        PTPDFRect *r = [annot GetRect];
+        double ax1 = [r GetX1], ay1 = [r GetY1], ax2 = [r GetX2], ay2 = [r GetY2];
+        sqLX = MIN(ax1, ax2);
+        sqLY = MIN(ay1, ay2);
+        sqW = fabs(ax2 - ax1);
+        sqH = fabs(ay2 - ay1);
+        if (sqW < minSquareSide || sqH < minSquareSide) {
+            return NO;
+        }
+    } else if (t == e_ptPolygon) {
+        polygonLine = [[PTPolyLine alloc] initWithAnn:annot];
+        if (![polygonLine IsValid] || [polygonLine GetVertexCount] < 3) {
+            return NO;
+        }
+    } else {
+        return NO;
+    }
+
+    PTColorSpace *rgb = [PTColorSpace CreateDeviceRGB];
+    if (!rgb) {
+        return NO;
+    }
+    PTElementWriter *writer = [[PTElementWriter alloc] init];
+    PTElementBuilder *builder = [[PTElementBuilder alloc] init];
+    @try {
+        [writer WriterBeginWithSDFDoc:[doc GetSDFDoc] compress:YES];
+
+        if (t == e_ptSquare) {
+            if (fillOpacity > 0.0) {
+                PTElement *fillEl = [builder CreateRect:sqLX y:sqLY width:sqW height:sqH];
+                PTGState *gsf = [fillEl GetGState];
+                [gsf SetFillColorSpace:rgb];
+                [gsf SetFillColorWithColorPt:fill];
+                [gsf SetFillOpacity:fillOpacity];
+                [gsf SetStrokeOpacity:1.0];
+                [fillEl SetPathFill:YES];
+                [fillEl SetPathStroke:NO];
+                [writer WritePlacedElement:fillEl];
+            }
+
+            PTElement *strokeEl = [builder CreateRect:sqLX y:sqLY width:sqW height:sqH];
+            PTGState *gss = [strokeEl GetGState];
+            [gss SetStrokeColorSpace:rgb];
+            [gss SetStrokeColorWithColorPt:stroke];
+            [gss SetStrokeOpacity:1.0];
+            [gss SetFillOpacity:1.0];
+            [gss SetLineWidth:lineWidth];
+            [strokeEl SetPathFill:NO];
+            [strokeEl SetPathStroke:YES];
+            [writer WritePlacedElement:strokeEl];
+        } else {
+            if (fillOpacity > 0.0) {
+                if (!BauhubPolyLineAppendClosedPath(builder, polygonLine)) {
+                    return NO;
+                }
+                PTElement *fillPath = [builder PathEnd];
+                PTGState *gsf = [fillPath GetGState];
+                [gsf SetFillColorSpace:rgb];
+                [gsf SetFillColorWithColorPt:fill];
+                [gsf SetFillOpacity:fillOpacity];
+                [gsf SetStrokeOpacity:1.0];
+                [fillPath SetPathFill:YES];
+                [fillPath SetPathStroke:NO];
+                [writer WritePlacedElement:fillPath];
+            }
+
+            if (!BauhubPolyLineAppendClosedPath(builder, polygonLine)) {
+                return NO;
+            }
+            PTElement *strokePath = [builder PathEnd];
+            PTGState *gss = [strokePath GetGState];
+            [gss SetStrokeColorSpace:rgb];
+            [gss SetStrokeColorWithColorPt:stroke];
+            [gss SetStrokeOpacity:1.0];
+            [gss SetFillOpacity:1.0];
+            [gss SetLineWidth:lineWidth];
+            [strokePath SetPathFill:NO];
+            [strokePath SetPathStroke:YES];
+            [writer WritePlacedElement:strokePath];
+        }
+
+        PTObj *form = [writer End];
+        if (![form IsValid]) {
+            return NO;
+        }
+        PTPDFRect *bb = [annot GetRect];
+        double bx1 = MIN([bb GetX1], [bb GetX2]);
+        double by1 = MIN([bb GetY1], [bb GetY2]);
+        double bx2 = MAX([bb GetX1], [bb GetX2]);
+        double by2 = MAX([bb GetY1], [bb GetY2]);
+        [form PutRect:@"BBox" x1:bx1 y1:by1 x2:bx2 y2:by2];
+
+        [annot SetAppearance:form annot_state:e_ptnormal app_state:0];
+        return YES;
+    } @catch (__unused NSException *e) {
+        return NO;
+    }
+}
+
+/// After XFDF merge / `refreshAnnotAppearances`, default AP is opaque — rebuild translucent Bauhub fill + thin stroke.
+static void BauhubRestoreTranslucentAreaMarkupAppearancesInDoc(PTPDFDoc *doc) {
+    if (!doc) {
+        return;
+    }
+    int pageCount = (int)[doc GetPageCount];
+    for (int p = 1; p <= pageCount; p++) {
+        PTPage *page = [doc GetPage:p];
+        int n = (int)[page GetNumAnnots];
+        for (int i = 0; i < n; i++) {
+            PTAnnot *a = [page GetAnnot:i];
+            if (!BauhubAnnotShouldReceiveAreaPin(a)) {
+                continue;
+            }
+            PTMarkup *m = [[PTMarkup alloc] initWithAnn:a];
+            if (![m IsValid]) {
+                continue;
+            }
+            int icn = 0;
+            @try {
+                icn = [m GetInteriorColorCompNum];
+            } @catch (__unused NSException *e) {
+                icn = 0;
+            }
+            PTColorPt *fillPt = nil;
+            if (icn >= 3) {
+                @try {
+                    fillPt = [m GetInteriorColor];
+                } @catch (__unused NSException *e) {
+                    fillPt = nil;
+                }
+            }
+            if (fillPt == nil) {
+                fillPt = BauhubColorPtFromOpaqueArgb(sBauhubAreaFillArgb);
+            }
+            PTColorPt *strokePt = nil;
+            int ccn = 0;
+            @try {
+                ccn = [a GetColorCompNum];
+            } @catch (__unused NSException *e) {
+                ccn = 0;
+            }
+            if (ccn >= 3) {
+                @try {
+                    strokePt = [a GetColor];
+                } @catch (__unused NSException *e) {
+                    strokePt = nil;
+                }
+            }
+            if (strokePt == nil) {
+                strokePt = BauhubColorPtFromOpaqueArgb(sBauhubAreaStrokeArgb);
+            }
+            double lw = kBauhubAreaStrokeWidth;
+            @try {
+                PTBorderStyle *bs = [a GetBorderStyle];
+                if (bs != nil && [bs GetWidth] > 0.1) {
+                    lw = [bs GetWidth];
+                }
+            } @catch (__unused NSException *e) {
+            }
+            @try {
+                [m SetOpacity:1.0];
+            } @catch (__unused NSException *e) {
+            }
+            BOOL ok = BauhubSetTranslucentAreaMarkupAppearance(
+                a, doc, fillPt, strokePt, (double)kBauhubAreaMarkupOpacity, lw, 0.5);
+            if (ok) {
+                BauhubZeroSquarePolygonBorderForCustomAppearance(a);
+            } else {
+                NSUInteger fillArgb = BauhubRgbArgbFromColorPt(fillPt);
+                PTColorPt *softFill = BauhubFillBlendedTowardWhite(fillArgb, (double)kBauhubAreaMarkupOpacity);
+                @try {
+                    [m SetInteriorColor:softFill CompNum:3];
+                    [a RefreshAppearance];
+                } @catch (__unused NSException *e) {
+                }
+            }
+        }
+    }
+}
+
+void BauhubSetAreaMarkupPresetColors(unsigned fillArgb, unsigned strokeArgb) {
+    sBauhubAreaFillArgb = BauhubNormalizeArgb(fillArgb);
+    sBauhubAreaStrokeArgb = BauhubNormalizeArgb(strokeArgb);
+}
+
+/// PDFNet draws the default square border on top of a custom `ca` stream unless border width is 0 (matches Android).
+static void BauhubZeroSquarePolygonBorderForCustomAppearance(PTAnnot *annot) {
+    if (!annot || ![annot IsValid]) {
+        return;
+    }
+    PTAnnotType t = [annot GetType];
+    if (t != e_ptSquare && t != e_ptPolygon) {
+        return;
+    }
+    @try {
+        PTBorderStyle *bs = [annot GetBorderStyle];
+        if (bs != nil) {
+            [bs SetWidth:0.0];
+            [annot SetBorderStyle:bs oldStyleOnly:NO];
+        }
+    } @catch (__unused NSException *e) {
+    }
+}
+
+/// `PTCreateToolBase` rubber-band uses `setupContext:` — simple black outline + transparent interior while dragging.
+static void BauhubConfigureAreaMarkupDrawingContext(CGContextRef ctx) {
+    if (!ctx) {
+        return;
+    }
+    CGContextSetRGBStrokeColor(ctx, 0.0f, 0.0f, 0.0f, 1.0f);
+    CGContextSetRGBFillColor(ctx, 1.0f, 1.0f, 1.0f, 0.0f);
+    CGContextSetLineWidth(ctx, (CGFloat)kBauhubAreaStrokeWidth);
+}
+
+/// While dragging, native square preview often ignores fill alpha and looks solid — black stroke + transparent fill.
+static void BauhubApplyAreaToolDrawPreviewDefaults(PTPDFViewCtrl *pdfViewCtrl) {
+    if (!pdfViewCtrl) {
+        return;
+    }
+    PTRotate cpm = [pdfViewCtrl GetColorPostProcessMode];
+    UIColor *strokeUI = [UIColor colorWithRed:0.0f green:0.0f blue:0.0f alpha:1.0f];
+    UIColor *fillUI = [UIColor colorWithWhite:1.0f alpha:0.0f];
+
+    [PTColorDefaults setDefaultColor:strokeUI forAnnotType:e_ptSquare attribute:ATTRIBUTE_STROKE_COLOR colorPostProcessMode:cpm];
+    [PTColorDefaults setDefaultColor:fillUI forAnnotType:e_ptSquare attribute:ATTRIBUTE_FILL_COLOR colorPostProcessMode:cpm];
+    [PTColorDefaults setDefaultColor:strokeUI forAnnotType:e_ptPolygon attribute:ATTRIBUTE_STROKE_COLOR colorPostProcessMode:cpm];
+    [PTColorDefaults setDefaultColor:fillUI forAnnotType:e_ptPolygon attribute:ATTRIBUTE_FILL_COLOR colorPostProcessMode:cpm];
+}
+
+static void BauhubScheduleReapplyBauhubAreaMarkupStyle(PTPDFViewCtrl *pdfViewCtrl, PTAnnot *annot, int pageNumber, NSString *subject) {
+    if (!pdfViewCtrl || !annot || ![annot IsValid]) {
+        return;
+    }
+    NSString *subj = (subject.length > 0) ? subject : @"Comment";
+    __weak PTPDFViewCtrl *weakPvc = pdfViewCtrl;
+    __weak PTAnnot *weakAnnot = annot;
+    void (^reapply)(void) = ^{
+        PTPDFViewCtrl *pvc = weakPvc;
+        PTAnnot *a = weakAnnot;
+        if (!pvc || !a || ![a IsValid]) {
+            return;
+        }
+        NSError *err = nil;
+        [pvc DocLock:YES withBlock:^(PTPDFDoc *d) {
+            [BauhubRectangleMarkupTool applyBauhubMarkupStyle:a doc:d subject:subj];
+        } error:&err];
+        [pvc UpdateWithAnnot:a page_num:pageNumber];
+    };
+    dispatch_async(dispatch_get_main_queue(), reapply);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(50 * NSEC_PER_MSEC)), dispatch_get_main_queue(), reapply);
+}
+
+@implementation BauhubRectangleMarkupTool
+
+- (double)setupContext:(CGContextRef)ctx {
+    (void)[super setupContext:ctx];
+    BauhubConfigureAreaMarkupDrawingContext(ctx);
+    return (double)kBauhubAreaStrokeWidth;
+}
+
+- (PTAnnot *)createAnnotationWithDoc:(PTPDFDoc *)doc myRect:(PTPDFRect *)myRect
+{
+    PTAnnot *annot = [super createAnnotationWithDoc:doc myRect:myRect];
+    [BauhubRectangleMarkupTool applyBauhubMarkupStyle:annot doc:doc subject:self.bauhubSubject];
+    BauhubScheduleAreaPinStamp(self.pdfViewCtrl, (int)self.pageNumber, annot);
+    BauhubScheduleReapplyBauhubAreaMarkupStyle(self.pdfViewCtrl, annot, (int)self.pageNumber, self.bauhubSubject);
+    return annot;
+}
+
++ (void)applyBauhubMarkupStyle:(PTAnnot *)annot doc:(PTPDFDoc *)doc subject:(NSString *)subject
+{
+    if (![annot IsValid]) {
+        return;
+    }
+    PTMarkup *markup = [[PTMarkup alloc] initWithAnn:annot];
+    if (![markup IsValid]) {
+        return;
+    }
+    NSString *existingUid = [annot GetUniqueIDAsString];
+    if (existingUid == nil || existingUid.length == 0) {
+        NSString *newId = [NSUUID UUID].UUIDString;
+        int bytes = (int)[newId lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+        @try {
+            [annot SetUniqueID:newId id_buf_sz:bytes];
+        } @catch (__unused NSException *e) {
+        }
+    }
+    NSString *subj = (subject.length > 0) ? subject : @"Comment";
+    [markup SetSubject:subj];
+    PTColorPt *fill = BauhubColorPtFromOpaqueArgb(sBauhubAreaFillArgb);
+    PTColorPt *stroke = BauhubColorPtFromOpaqueArgb(sBauhubAreaStrokeArgb);
+    [markup SetInteriorColor:fill CompNum:3];
+    [annot SetColor:stroke numcomp:3];
+    [markup SetOpacity:1.0];
+    @try {
+        PTBorderStyle *bs = [annot GetBorderStyle];
+        if (bs == nil) {
+            bs = [[PTBorderStyle alloc] initWithS:(PTBdStyle)0 b_width:kBauhubAreaStrokeWidth b_hr:0.0 b_vr:0.0];
+        } else {
+            [bs SetWidth:kBauhubAreaStrokeWidth];
+        }
+        [annot SetBorderStyle:bs oldStyleOnly:NO];
+    } @catch (__unused NSException *e) {
+    }
+
+    BOOL usedCustomAppearance = (doc != nil)
+        && BauhubSetTranslucentAreaMarkupAppearance(
+            annot, doc, fill, stroke, (double)kBauhubAreaMarkupOpacity, kBauhubAreaStrokeWidth, 0.5);
+    if (usedCustomAppearance) {
+        BauhubZeroSquarePolygonBorderForCustomAppearance(annot);
+    } else {
+        PTColorPt *softFill = BauhubFillBlendedTowardWhite(sBauhubAreaFillArgb, (double)kBauhubAreaMarkupOpacity);
+        [markup SetInteriorColor:softFill CompNum:3];
+        @try {
+            [annot RefreshAppearance];
+        } @catch (__unused NSException *e) {
+        }
+    }
+}
+
+@end
+
+#pragma mark - BauhubPolygonMarkupTool
+
+@implementation BauhubPolygonMarkupTool
+
+- (double)setupContext:(CGContextRef)ctx {
+    (void)[super setupContext:ctx];
+    BauhubConfigureAreaMarkupDrawingContext(ctx);
+    return (double)kBauhubAreaStrokeWidth;
+}
+
+/**
+ * Unlike {@code PTRectangleCreate}, {@code PTPolygonCreate.commitAnnotation} builds the annotation
+ * and sets its vertices AFTER calling {@code createAnnotationWithDoc:myRect:}. At creation-time the
+ * PTPolyLine has 0 vertices, so {@code BauhubSetTranslucentAreaMarkupAppearance} (which requires ≥3)
+ * silently fails and the SDK's subsequent {@code RefreshAppearance} wipes any partial style. Only
+ * the subject + stroke/fill attrs written on the SDF object survive here; the custom appearance
+ * stream and the decorative pin stamp must be applied after vertices exist.
+ */
+- (PTAnnot *)createAnnotationWithDoc:(PTPDFDoc *)doc myRect:(PTPDFRect *)myRect
+{
+    PTAnnot *annot = [super createAnnotationWithDoc:doc myRect:myRect];
+    [BauhubRectangleMarkupTool applyBauhubMarkupStyle:annot doc:doc subject:self.bauhubSubject];
+    return annot;
+}
+
+/**
+ * {@code annotationAdded:onPageNumber:} is invoked by {@code PTPolylineCreate.commitAnnotation}
+ * AFTER vertices have been written to the PTPolygon and the annotation is on the page — whether
+ * commit comes from Bauhub's "Valmis" FAB or from PDFTron's native edit toolbar's Complete button.
+ * This is where we (re)apply the translucent fill + stroke appearance stream, schedule the
+ * decorative pin stamp, and schedule the deferred style reapply. Matches Android's
+ * {@code BauhubPolygonMarkupTool.createMarkup} hook which also runs post-vertex.
+ *
+ * Style is applied BEFORE {@code super} so the {@code subject="Comment"/"Attachment"} attr is
+ * visible on {@code GetSDFObj} when Flutter's annotationChanged listener exports XFDF to
+ * distinguish Bauhub polygons from stock {@code PTPolygonCreate} output (pendingPin guard).
+ */
+- (void)annotationAdded:(PTAnnot *)annotation onPageNumber:(unsigned long)pageNumber
+{
+    PTPDFViewCtrl *pvc = self.pdfViewCtrl;
+    if (annotation != nil && [annotation IsValid] && pvc != nil) {
+        NSError *err = nil;
+        [pvc DocLock:YES withBlock:^(PTPDFDoc *doc) {
+            [BauhubRectangleMarkupTool applyBauhubMarkupStyle:annotation doc:doc subject:self.bauhubSubject];
+        } error:&err];
+        BauhubScheduleAreaPinStamp(pvc, (int)pageNumber, annotation);
+        BauhubScheduleReapplyBauhubAreaMarkupStyle(pvc, annotation, (int)pageNumber, self.bauhubSubject);
+    }
+    [super annotationAdded:annotation onPageNumber:pageNumber];
 }
 
 @end

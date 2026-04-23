@@ -2,7 +2,16 @@
 #import "PTFlutterDocumentController.h"
 #import "DocumentViewFactory.h"
 
+static BOOL PTIsBauhubRestrictedMarkupSubject(NSString *subject)
+{
+    if (subject.length == 0) {
+        return NO;
+    }
+    return [subject isEqualToString:@"Comment"] || [subject isEqualToString:@"Attachment"] || [subject isEqualToString:@"Task"];
+}
+
 #include <objc/runtime.h>
+#include <objc/message.h>
 
 static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
 {
@@ -15,6 +24,46 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
     }
 
     return YES;
+}
+
+static void PT_installResizingToolbarLayoutCrashGuard(void)
+{
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class toolbarClass = NSClassFromString(@"PTResizingToolbar");
+        if (!toolbarClass) {
+            return;
+        }
+
+        SEL originalSelector = @selector(layoutSubviews);
+        SEL guardedSelector = NSSelectorFromString(@"pt_guarded_layoutSubviews");
+
+        Method originalMethod = class_getInstanceMethod(toolbarClass, originalSelector);
+        if (!originalMethod) {
+            return;
+        }
+
+        // Add guarded implementation onto PTResizingToolbar class.
+        const BOOL added = PT_addMethod(toolbarClass, guardedSelector, ^(id self) {
+            @try {
+                // Calls original layoutSubviews after swizzle.
+                ((void (*)(id, SEL))objc_msgSend)(self, guardedSelector);
+            } @catch (NSException *exception) {
+                NSLog(@"[PTResizingToolbar] Ignored layout exception: %@", exception);
+            }
+        });
+
+        if (!added) {
+            return;
+        }
+
+        Method guardedMethod = class_getInstanceMethod(toolbarClass, guardedSelector);
+        if (!guardedMethod) {
+            return;
+        }
+
+        method_exchangeImplementations(originalMethod, guardedMethod);
+    });
 }
 
 @interface PTFlutterDocumentController()
@@ -39,6 +88,7 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
 
 - (void)viewDidLoad
 {
+    PT_installResizingToolbarLayoutCrashGuard();
     [super viewDidLoad];
 
     // Avoid touching thumbnail slider controller in viewDidLoad.
@@ -73,7 +123,17 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
 
 - (void)viewWillLayoutSubviews
 {
-    [super viewWillLayoutSubviews];
+    @try {
+        [super viewWillLayoutSubviews];
+    } @catch (NSException *exception) {
+        // Guard against intermittent iOS AutoLayout crashes originating from
+        // internal slider/toolbar constraints (UISlider/PTResizingToolbar).
+        // We intentionally continue to keep the document view alive.
+        NSLog(@"[PTFlutterDocumentController] Ignored layout exception: %@", exception);
+    }
+
+    // Keep slider path disabled on every layout pass as a safety net.
+    self.thumbnailSliderEnabled = NO;
 
     if (self.needsDocumentLoaded) {
         self.needsDocumentLoaded = NO;
@@ -285,15 +345,46 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
     }]];
 }
 
-- (NSArray<UIMenuItem *> *)removeAnnotationItemsFromBauhubTask:(NSArray<UIMenuItem *> *)items {
-    NSArray<NSString *> *stringsToRemove = @[
-        PTLocalizedString(@"Note", nil),
-        PTLocalizedString(@"Copy", nil),
-    ];
+- (NSArray<UIMenuItem *> *)removeRestrictedBauhubMarkupMenuItems:(NSArray<UIMenuItem *> *)items
+{
+    NSDictionary *map = @{
+        PTStyleMenuItemTitleKey: PTStyleMenuItemIdentifierKey,
+        PTNoteMenuItemTitleKey: PTNoteMenuItemIdentifierKey,
+        PTCopyMenuItemTitleKey: PTCopyMenuItemIdentifierKey,
+        PTTypeMenuItemTitleKey: PTTypeMenuItemIdentifierKey,
+    };
+    NSMutableDictionary<NSString *, NSString *> *localizedMap = [NSMutableDictionary dictionary];
+    for (NSString *key in map) {
+        NSString *localizedKey = PTLocalizedString(key, nil);
+        if (!localizedKey) {
+            localizedKey = key;
+        }
+        localizedMap[localizedKey] = map[key];
+    }
 
-    // Filter out menu items with titles matching specified strings.
+    NSSet<NSString *> *stripIds = [NSSet setWithArray:@[
+        PTStyleMenuItemIdentifierKey,
+        PTNoteMenuItemIdentifierKey,
+        PTCopyMenuItemIdentifierKey,
+        PTTypeMenuItemIdentifierKey,
+    ]];
+
+    NSArray *extraKeys = @[ @"Group", @"Ungroup", @"Thickness" ];
+    NSMutableSet<NSString *> *stripTitles = [NSMutableSet set];
+    for (NSString *key in extraKeys) {
+        NSString *loc = PTLocalizedString(key, nil) ?: key;
+        [stripTitles addObject:loc];
+    }
+
     return [items objectsAtIndexes:[items indexesOfObjectsPassingTest:^BOOL(UIMenuItem *menuItem, NSUInteger idx, BOOL *stop) {
-        return ![stringsToRemove containsObject:menuItem.title];
+        NSString *menuItemId = localizedMap[menuItem.title];
+        if (menuItemId && [stripIds containsObject:menuItemId]) {
+            return NO;
+        }
+        if (menuItem.title != nil && [stripTitles containsObject:menuItem.title]) {
+            return NO;
+        }
+        return YES;
     }]];
 }
 
@@ -312,6 +403,11 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
 
 -(void)toolManager:(PTToolManager*)toolManager willRemoveAnnotation:(nonnull PTAnnot *)annotation onPageNumber:(int)pageNumber
 {
+    NSError *bauhubPinErr = nil;
+    [self.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
+        PTBauhubRemoveDecorativePinsWhenParentShapeRemoved(self.pdfViewCtrl, doc, annotation, pageNumber);
+    } error:&bauhubPinErr];
+
     NSString* annotationsWithActionString = [self generateAnnotationsWithActionString:@[annotation] onPageNumber:pageNumber action:PTDeleteActionKey];
     if (annotationsWithActionString) {
         [self.plugin documentController:self annotationsChangedWithActionString:annotationsWithActionString];
@@ -460,9 +556,21 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
     menuController.menuItems = [self removeAnnotationItems:menuController.menuItems];
     // NSLog([annotation GetCustomData:@"taskId"]);
 
-    // Remove all buttons from BauhubTask
-    if (annotation.GetType == 12) {
-        menuController.menuItems = [self removeAnnotationItemsFromBauhubTask:menuController.menuItems];
+    if (annotation) {
+        __block NSString *bauhubSubject = nil;
+        NSError *subjError = nil;
+        [self.pdfViewCtrl DocLockReadWithBlock:^(PTPDFDoc *doc) {
+            PTMarkup *markup = [[PTMarkup alloc] initWithAnn:annotation];
+            if ([markup IsValid]) {
+                bauhubSubject = [markup GetSubject];
+            }
+        } error:&subjError];
+        if (subjError) {
+            NSLog(@"%@", subjError);
+        }
+        if (PTIsBauhubRestrictedMarkupSubject(bauhubSubject)) {
+            menuController.menuItems = [self removeRestrictedBauhubMarkupMenuItems:menuController.menuItems ? menuController.menuItems : @[]];
+        }
     }
 
     return showMenu;
@@ -764,6 +872,9 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
                 if ([uniqueIdObj IsValid] && [uniqueIdObj IsString]) {
                     uniqueId = [uniqueIdObj GetAsPDFText];
                 }
+                if (uniqueId.length == 0) {
+                    uniqueId = [annotation GetUniqueIDAsString];
+                }
             } error:&error];
 
             if (error) {
@@ -771,8 +882,18 @@ static BOOL PT_addMethod(Class cls, SEL selector, void (^block)(id))
                 return nil;
             }
 
-            if (!uniqueId) {
-                continue;
+            if (uniqueId.length == 0) {
+                NSString *newId = [NSUUID UUID].UUIDString;
+                NSError *writeErr;
+                [self.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
+                    int bytes = (int)[newId lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+                    [annotation SetUniqueID:newId id_buf_sz:bytes];
+                } error:&writeErr];
+                if (writeErr) {
+                    NSLog(@"Failed to assign annotation unique id: %@", writeErr);
+                    continue;
+                }
+                uniqueId = newId;
             }
 
             NSDictionary *annotDict = @{

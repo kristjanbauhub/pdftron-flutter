@@ -213,6 +213,7 @@ static NSString * const PTGetVersionKey = @"getVersion";
 static NSString * const PTInitializeKey = @"initialize";
 static NSString * const PTOpenDocumentKey = @"openDocument";
 static NSString * const PTImportAnnotationsKey = @"importAnnotations";
+static NSString * const PTMergeAnnotationsKey = @"mergeAnnotations";
 static NSString * const PTExportAnnotationsKey = @"exportAnnotations";
 static NSString * const PTFlattenAnnotationsKey = @"flattenAnnotations";
 static NSString * const PTDeleteAnnotationsKey = @"deleteAnnotations";
@@ -242,6 +243,7 @@ static NSString * const PTGotoFirstPageKey = @"gotoFirstPage";
 static NSString * const PTGotoLastPageKey = @"gotoLastPage";
 static NSString * const PTGetDocumentPathKey = @"getDocumentPath";
 static NSString * const PTSetToolModeKey = @"setToolMode";
+static NSString * const PTSetBauhubAreaMarkupColorsKey = @"setBauhubAreaMarkupColors";
 static NSString * const PTSetFlagForFieldsKey = @"setFlagForFields";
 static NSString * const PTSetValuesForFieldsKey = @"setValuesForFields";
 static NSString * const PTSetLeadingNavButtonIconKey = @"setLeadingNavButtonIcon";
@@ -294,6 +296,8 @@ static NSString * const PTPageNumberArgumentKey = @"pageNumber";
 static NSString * const PTBookmarkTitleArgumentKey = @"title";
 static NSString * const PTLicenseArgumentKey = @"licenseKey";
 static NSString * const PTToolModeArgumentKey = @"toolMode";
+static NSString * const PTFillColorArgbArgumentKey = @"fillColorArgb";
+static NSString * const PTStrokeColorArgbArgumentKey = @"strokeColorArgb";
 static NSString * const PTFieldNamesArgumentKey = @"fieldNames";
 static NSString * const PTFlagArgumentKey = @"flag";
 static NSString * const PTFlagValueArgumentKey = @"flagValue";
@@ -566,5 +570,33 @@ typedef enum
 @interface BauhubPlusIconTool : PTCreateToolBase
 
 @end
+
+@interface BauhubPinStampTool : PTCreateToolBase
+
+@property (nonatomic, copy) NSString *pinImageName;
+@property (nonatomic, copy) NSString *pinSubject;
+
+@end
+
+@interface BauhubRectangleMarkupTool : PTRectangleCreate
+
+@property (nonatomic, copy) NSString *bauhubSubject;
+
++ (void)applyBauhubMarkupStyle:(PTAnnot *)annot doc:(PTPDFDoc *)doc subject:(NSString *)subject;
+
+@end
+
+@interface BauhubPolygonMarkupTool : PTPolygonCreate
+
+@property (nonatomic, copy) NSString *bauhubSubject;
+
+@end
+
+/** When a Bauhub area shape is removed, delete matching decorative pin stamps (same as Android). */
+FOUNDATION_EXTERN void PTBauhubRemoveDecorativePinsWhenParentShapeRemoved(
+    PTPDFViewCtrl *pdfViewCtrl,
+    PTPDFDoc *doc,
+    PTAnnot *shapeAnnot,
+    int pageNumber);
 
 NS_ASSUME_NONNULL_END
