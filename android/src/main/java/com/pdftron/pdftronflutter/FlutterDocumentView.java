@@ -35,6 +35,7 @@ import static com.pdftron.pdftronflutter.helpers.PluginUtils.EVENT_ANNOTATION_TO
 
 // Hygen Generated Event Listeners (1)
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.EVENT_APP_BAR_BUTTON_PRESSED;
+import static com.pdftron.pdftronflutter.helpers.PluginUtils.EVENT_BAUHUB_POLYGON_STATE;
 
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.FUNCTION_OPEN_DOCUMENT;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.FUNCTION_SET_LEADING_NAV_BUTTON_ICON;
@@ -284,6 +285,25 @@ public class FlutterDocumentView implements PlatformView, MethodChannel.MethodCa
             @Override
             public void onCancel(Object arguments) {
                 documentView.setAppBarButtonPressedEventEmitter(null);
+            }
+        });
+
+        // Bauhub polygon in-progress state — stored as a static on the tool class (not per
+        // DocumentView) because only one polygon can be in flight at a time across the app.
+        // See {@link PluginMethodCallHandler} for the matching registration in fullscreen mode.
+        final EventChannel bauhubPolygonStateEventChannel =
+                new EventChannel(messenger, EVENT_BAUHUB_POLYGON_STATE);
+        bauhubPolygonStateEventChannel.setStreamHandler(new EventChannel.StreamHandler() {
+            @Override
+            public void onListen(Object arguments, EventChannel.EventSink emitter) {
+                com.pdftron.pdftronflutter.bauhub.BauhubPolygonMarkupTool
+                        .setStateEventSink(emitter);
+            }
+
+            @Override
+            public void onCancel(Object arguments) {
+                com.pdftron.pdftronflutter.bauhub.BauhubPolygonMarkupTool
+                        .setStateEventSink(null);
             }
         });
     }

@@ -203,6 +203,11 @@ static NSString * const PTUnderlineWhiteListKey = @"Underline";
 static NSString * const PTSquigglyWhiteListKey = @"Squiggly";
 
 // function
+// Bauhub polygon in-progress controls (Cancel / Undo-point / Redo-point). These act on the
+// active BauhubPolygonMarkupTool, NOT the document-level undo manager — hence separate names.
+static NSString * const PTBauhubCancelActiveShapeKey = @"bauhubCancelActiveShape";
+static NSString * const PTBauhubUndoActiveShapePointKey = @"bauhubUndoActiveShapePoint";
+static NSString * const PTBauhubRedoActiveShapePointKey = @"bauhubRedoActiveShapePoint";
 static NSString * const PTSetCustomDataForAnnotationKey = @"setCustomDataForAnnotation";
 static NSString * const PTIsBauhubToolModeKey = @"isBauhubToolMode";
 static NSString * const PTHideAnnotationKey = @"hideAnnotation";
@@ -346,6 +351,12 @@ static NSString *const PTScrollChangedEventKey = @"scroll_changed_event";
 // Hygen Generated Event Listeners (1)
 static NSString * const PTAnnotationToolbarItemPressedEventKey = @"annotation_toolbar_item_pressed_event";
 static NSString * const PTAppBarButtonPressedEventKey = @"app_bar_button_pressed_event";
+
+// Bauhub-specific: streams in-progress polygon tool state
+// ({active, vertexCount, canUndo, canRedo}). The Flutter toolbar uses this to swap the
+// Point/Area pill out for the active-polygon chrome (Cancel / Undo / Redo / Done) the moment
+// the user places the first vertex.
+static NSString * const PTBauhubPolygonStateEventKey = @"bauhub_polygon_state_event";
 
 // fit mode
 static NSString * const PTFitPageKey = @"FitPage";
@@ -522,6 +533,7 @@ typedef enum
     scrollChangedId,
     annotationToolbarItemPressedId,
     appBarButtonPressedId,
+    bauhubPolygonStateId,
 } EventSinkId;
 
 @interface PdftronFlutterPlugin : NSObject<FlutterPlugin, FlutterStreamHandler, FlutterPlatformView>
@@ -590,6 +602,28 @@ typedef enum
 
 @property (nonatomic, copy) NSString *bauhubSubject;
 
+/**
+ * Drops the in-progress polygon (clears vertices + Bauhub's redo stack) and deselects the tool.
+ * Returns YES if there was an active Bauhub polygon tool to cancel.
+ */
++ (BOOL)cancelActiveShape;
+
+/** Prefer these from the plugin: resolve the live tool via `toolManager.tool` (the weak singleton can be stale). */
++ (BOOL)cancelActiveShapeWithToolManager:(nullable PTToolManager *)toolManager;
+
+/** Pops the most recent vertex; returns YES if anything was undone. */
++ (BOOL)undoActiveShapePoint;
+
++ (BOOL)undoActiveShapePointWithToolManager:(nullable PTToolManager *)toolManager;
+
+/** Re-adds the most recently undone vertex; returns YES if anything was redone. */
++ (BOOL)redoActiveShapePoint;
+
++ (BOOL)redoActiveShapePointWithToolManager:(nullable PTToolManager *)toolManager;
+
+/** Sink consumed by the Bauhub polygon-state FlutterEventChannel. nil = unregistered. */
++ (void)setStateEventSink:(nullable FlutterEventSink)sink;
+
 @end
 
 /** When a Bauhub area shape is removed, delete matching decorative pin stamps (same as Android). */
@@ -598,5 +632,51 @@ FOUNDATION_EXTERN void PTBauhubRemoveDecorativePinsWhenParentShapeRemoved(
     PTPDFDoc *doc,
     PTAnnot *shapeAnnot,
     int pageNumber);
+
+/**
+ * Mirrors a parent shape's hide/show onto every linked decorative pin stamp on the same
+ * page. Activity-feed filters (type toggles + "Näita lahendatud") use this so a hidden
+ * comment / attachment / task area never leaves its corner pin floating on the canvas.
+ *
+ * <p>Looks up the parent's {@code GetUniqueID} text, scans the page for stamps tagged
+ * with the Bauhub decorative-pin custom-data key whose parent-uid custom data matches,
+ * and calls {@code [pdfViewCtrl HideAnnotation:]} / {@code ShowAnnotation:} for each.
+ * Pure point-pin annotations (no parent shape) short-circuit out — the regular hide/show
+ * path on those takes care of the pin directly.
+ *
+ * <p>Caller must already hold a write lock on the document and is responsible for
+ * scheduling a {@code [pdfViewCtrl UpdateWithAnnot:page_num:]} (or {@code Update}) once
+ * after the operation so the page repaints.
+ */
+FOUNDATION_EXTERN void PTBauhubSetDecorativePinsVisibilityForParentShape(
+    PTPDFViewCtrl *pdfViewCtrl,
+    PTPDFDoc *doc,
+    PTAnnot *shapeAnnot,
+    int pageNumber,
+    BOOL visible);
+
+/**
+ * Reapply the Bauhub translucent custom appearance to a single area markup (square / polygon
+ * with a {@code Comment} / {@code Attachment} / {@code Task} subject). No-op for any other
+ * annotation type or subject.
+ *
+ * <p>Must be called from inside a {@code DocLock:YES} block — caller owns the write lock.
+ *
+ * <p>PDFTron iOS's Tools framework rebuilds the appearance stream after the user finishes
+ * resizing or moving an annotation (`onTouchesEnded` -> `update` -> default refresh). The
+ * rebuilt AP renders {@code IC} at full alpha — collapsing our translucent fill into a flat
+ * solid colour. Calling this immediately after the modify-toolmanager-callback restores the
+ * Bauhub {@code AP/N} (fill 0.3 baked, stroke 1.0 baked) so the area keeps looking identical
+ * to its unedited state across all platforms.
+ */
+FOUNDATION_EXTERN void PTBauhubReapplyTranslucentAreaMarkupAppearanceForAnnot(
+    PTAnnot *annot,
+    PTPDFDoc *doc);
+
+/**
+ * Returns YES if {@code annot} is a Bauhub area markup (square / polygon with a Bauhub
+ * subject). Cheap; safe to call from any thread that already holds at least a read lock.
+ */
+FOUNDATION_EXTERN BOOL PTBauhubAnnotIsAreaMarkup(PTAnnot *_Nullable annot);
 
 NS_ASSUME_NONNULL_END

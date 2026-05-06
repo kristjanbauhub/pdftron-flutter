@@ -42,6 +42,76 @@ public final class BauhubAreaPinDecoration {
     }
 
     /**
+     * Mirrors a parent shape's hide/show onto every linked decorative pin stamp on the same
+     * page. Activity-feed filters (type toggles + "Näita lahendatud") use this so a hidden
+     * comment / attachment / task area never leaves its corner pin floating on the canvas.
+     *
+     * <p>Looks up the parent's {@link Annot#getUniqueID()}, scans the page for stamps with
+     * {@link #DECORATIVE_STAMP_CUSTOM_KEY} + {@link #PARENT_SHAPE_UID_KEY} equal to the
+     * parent uid, and calls {@link PDFViewCtrl#hideAnnotation(Annot)} /
+     * {@link PDFViewCtrl#showAnnotation(Annot)} for each match. Pure point-pin annotations
+     * (no parent shape) have no decorative stamps attached and short-circuit out via the
+     * subject check inside {@link #bauhubAreaParentUidFromShapeAnnot}; the hide/show in
+     * {@code PluginUtils} for those takes care of the pin directly.
+     *
+     * <p>Caller must already hold the doc write-lock and is responsible for invoking
+     * {@link PDFViewCtrl#update(Annot, int)} (or a broader update) once after the operation.
+     */
+    public static void setDecorativePinsVisibilityForParentShape(
+            @NonNull PDFViewCtrl pdfViewCtrl,
+            @NonNull PDFDoc doc,
+            @NonNull Annot shapeAnnot,
+            int pageNum,
+            boolean visible) {
+        try {
+            String parentUid = bauhubAreaParentUidFromShapeAnnot(shapeAnnot);
+            if (parentUid == null || parentUid.isEmpty()) {
+                return;
+            }
+            if (pageNum < 1) {
+                pageNum = resolvePageNumberForShapeAnnot(pdfViewCtrl, doc, shapeAnnot);
+            }
+            if (pageNum < 1) {
+                return;
+            }
+            Page page = doc.getPage(pageNum);
+            if (page == null) {
+                return;
+            }
+            int n = page.getNumAnnots();
+            for (int i = 0; i < n; i++) {
+                Annot a = page.getAnnot(i);
+                if (a == null || !a.isValid() || a.getType() != Annot.e_Stamp) {
+                    continue;
+                }
+                String dec = null;
+                try {
+                    dec = a.getCustomData(DECORATIVE_STAMP_CUSTOM_KEY);
+                } catch (Exception ignored) {
+                }
+                if (dec == null || dec.isEmpty()) {
+                    continue;
+                }
+                String puid = null;
+                try {
+                    puid = a.getCustomData(PARENT_SHAPE_UID_KEY);
+                } catch (Exception ignored) {
+                }
+                if (!parentUid.equals(puid)) {
+                    continue;
+                }
+                if (visible) {
+                    pdfViewCtrl.showAnnotation(a);
+                } else {
+                    pdfViewCtrl.hideAnnotation(a);
+                }
+            }
+        } catch (Exception e) {
+            AnalyticsHandlerAdapter.getInstance().sendException(e);
+        }
+    }
+
+    /**
      * Removes decorative area-pin stamps whose {@link #PARENT_SHAPE_UID_KEY} matches (e.g. shape was deleted).
      */
     public static void removeDecorativeStampsForParentUid(
@@ -158,7 +228,11 @@ public final class BauhubAreaPinDecoration {
                 if (a == null || !a.isValid()) {
                     continue;
                 }
-                if (!matchesBauhubShape(a) || alreadyHasPin(a)) {
+                // Do not skip based on BauhubAreaPin custom data alone — same as iOS
+                // BauhubDecorateAllImportedAreaPins: XFDF/server flows can keep the flag on the shape while the
+                // decorative stamp annot never persisted (or was stripped). We still run applyPinForShapeAnnot;
+                // dedupe uses a linked decorative stamp + geometry, not CUSTOM_DATA_KEY on the shape.
+                if (!matchesBauhubShape(a)) {
                     continue;
                 }
                 targets.add(a);
@@ -191,31 +265,61 @@ public final class BauhubAreaPinDecoration {
         // next UI loop tick — by then the shape is on the page and the stamp is simply appended
         // at the end, above the shape, with no reorder and no zombie.
         Runnable placePin = () -> {
-            try {
-                if (!shapeAnnot.isValid() || alreadyHasPin(shapeAnnot)) {
-                    return;
+            runUnderDocWriteLock(ctrl, () -> {
+                try {
+                    if (!shapeAnnot.isValid() || alreadyHasPin(shapeAnnot)) {
+                        return;
+                    }
+                    tryPlacePinForShape(ctrl, doc, shapeAnnot, tool);
+                } catch (Exception e) {
+                    AnalyticsHandlerAdapter.getInstance().sendException(e);
                 }
-                tryPlacePinForShape(ctrl, doc, shapeAnnot, tool);
-                // Second pass fallback: {@link Annot#getPage} may still lag one tick on multi-page
-                // continuous scroll. If the first pass couldn't resolve a page, retry once more.
-                if (!alreadyHasPin(shapeAnnot)) {
-                    ctrl.post(
-                            () -> {
-                                try {
-                                    if (!shapeAnnot.isValid() || alreadyHasPin(shapeAnnot)) {
-                                        return;
-                                    }
-                                    tryPlacePinForShape(ctrl, doc, shapeAnnot, tool);
-                                } catch (Exception e) {
-                                    AnalyticsHandlerAdapter.getInstance().sendException(e);
-                                }
-                            });
-                }
-            } catch (Exception e) {
-                AnalyticsHandlerAdapter.getInstance().sendException(e);
-            }
+            });
+            // Second pass fallback: {@link Annot#getPage} may still lag one tick on multi-page
+            // continuous scroll, and {@link com.pdftron.pdf.Stamper#stampImage} can also silently
+            // short-circuit when the parent tool's native context has not yet released its write
+            // barrier (most common on {@link com.pdftron.pdf.tools.AdvancedShapeCreate#commit}, which
+            // drives Bauhub polygon creation). Retry once after a further UI tick so the stamp
+            // lands even when the first pass no-ops.
+            ctrl.post(
+                    () -> runUnderDocWriteLock(ctrl, () -> {
+                        try {
+                            if (!shapeAnnot.isValid() || alreadyHasPin(shapeAnnot)) {
+                                return;
+                            }
+                            tryPlacePinForShape(ctrl, doc, shapeAnnot, tool);
+                        } catch (Exception e) {
+                            AnalyticsHandlerAdapter.getInstance().sendException(e);
+                        }
+                    }));
         };
         ctrl.post(placePin);
+    }
+
+    /**
+     * {@link com.pdftron.pdf.Stamper#stampImage} writes into the PDFDoc and must hold an exclusive
+     * write lock. {@link PDFViewCtrl#post} queues onto the UI thread without any lock, so both the
+     * scheduled and fallback passes of {@link #ensurePinForNewShape} must acquire one themselves —
+     * otherwise {@code stampImage} silently drops the operation and the decorative pin never
+     * appears (repro: Bauhub polygon area on Android; the square/rect tool was incidentally safe
+     * because its pin placement happened while the tool still held the lock internally).
+     */
+    private static void runUnderDocWriteLock(@NonNull PDFViewCtrl ctrl, @NonNull Runnable body) {
+        boolean locked = false;
+        try {
+            ctrl.docLock(true);
+            locked = true;
+            body.run();
+        } catch (Exception e) {
+            AnalyticsHandlerAdapter.getInstance().sendException(e);
+        } finally {
+            if (locked) {
+                try {
+                    ctrl.docUnlock();
+                } catch (Exception ignored) {
+                }
+            }
+        }
     }
 
     private static void tryPlacePinForShape(
@@ -330,6 +434,41 @@ public final class BauhubAreaPinDecoration {
         return v != null && !v.isEmpty();
     }
 
+    /**
+     * True if this page already has a Bauhub decorative area-pin stamp linked to the shape's unique id.
+     * Prefer this over {@link #alreadyHasPin} when deciding whether the canvas actually shows a pin.
+     */
+    private static boolean pageHasLinkedDecorativePinForShape(@NonNull Page page, @Nullable String shapeUid)
+            throws PDFNetException {
+        if (shapeUid == null || shapeUid.isEmpty()) {
+            return false;
+        }
+        int n = page.getNumAnnots();
+        for (int i = 0; i < n; i++) {
+            Annot a = page.getAnnot(i);
+            if (a == null || !a.isValid() || a.getType() != Annot.e_Stamp) {
+                continue;
+            }
+            String dec = null;
+            try {
+                dec = a.getCustomData(DECORATIVE_STAMP_CUSTOM_KEY);
+            } catch (Exception ignored) {
+            }
+            if (dec == null || dec.isEmpty()) {
+                continue;
+            }
+            String puid = null;
+            try {
+                puid = a.getCustomData(PARENT_SHAPE_UID_KEY);
+            } catch (Exception ignored) {
+            }
+            if (shapeUid.equals(puid)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean hasPinStampNearShapeCorner(Page page, Rect bbox, String shapeSubject) throws PDFNetException {
         double minX = Math.min(bbox.getX1(), bbox.getX2());
         double maxY = Math.max(bbox.getY1(), bbox.getY2());
@@ -378,6 +517,17 @@ public final class BauhubAreaPinDecoration {
 
             Rect bbox = shapeAnnot.getRect();
             Page pageForDedup = doc.getPage(pageNum);
+            Obj uidObjEarly = shapeAnnot.getUniqueID();
+            if (uidObjEarly != null) {
+                String shapeUid = uidObjEarly.getAsPDFText();
+                if (shapeUid != null
+                        && !shapeUid.isEmpty()
+                        && pageHasLinkedDecorativePinForShape(pageForDedup, shapeUid)) {
+                    shapeAnnot.setCustomData(CUSTOM_DATA_KEY, "1");
+                    pdfViewCtrl.update(shapeAnnot, pageNum);
+                    return;
+                }
+            }
             if (hasPinStampNearShapeCorner(pageForDedup, bbox, subj)) {
                 shapeAnnot.setCustomData(CUSTOM_DATA_KEY, "1");
                 return;

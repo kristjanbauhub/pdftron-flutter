@@ -37,6 +37,7 @@ const _scrollChangedChannel = const EventChannel('scroll_changed_event');
 
 // Hygen Generated Event Listeners (1)
 const _appBarButtonPressedChannel = const EventChannel('app_bar_button_pressed_event');
+const _bauhubPolygonStateChannel = const EventChannel('bauhub_polygon_state_event');
 
 /// A listener used as the argument for [startExportAnnotationCommandListener].
 ///
@@ -158,7 +159,66 @@ enum eventSinkId {
 
   // Hygen Generated Event Listeners (3)
   appBarButtonPressedId,
+  bauhubPolygonStateId,
 }
+
+/// Snapshot of the in-progress Bauhub polygon tool. Emitted by native on every vertex add, undo
+/// and redo; consumed by the Flutter annotation toolbar to swap chrome modes (Point/Area pill
+/// vs. Cancel / Undo / Redo / Done) at the moment the first vertex lands.
+class BauhubPolygonToolState {
+  const BauhubPolygonToolState({
+    required this.active,
+    required this.vertexCount,
+    required this.canUndo,
+    required this.canRedo,
+  });
+
+  /// True when a `BauhubPolygonMarkupTool` is currently the active tool on the native side.
+  /// Flips to false on commit / cancel / tool swap.
+  final bool active;
+
+  /// Number of vertices currently placed on the in-progress polygon. Zero while the tool is
+  /// active but before the first tap.
+  final int vertexCount;
+
+  /// Whether popping the last vertex is possible (`vertexCount > 0` on both platforms).
+  final bool canUndo;
+
+  /// Whether re-applying the most recently popped vertex is possible.
+  final bool canRedo;
+
+  /// Pre-tool-selection "idle" value. Use as the initial value of a stream-backed state holder
+  /// so the toolbar renders the idle Point/Area pill until the first native event arrives.
+  static const BauhubPolygonToolState idle = BauhubPolygonToolState(
+    active: false,
+    vertexCount: 0,
+    canUndo: false,
+    canRedo: false,
+  );
+
+  factory BauhubPolygonToolState.fromMap(Map<Object?, Object?> map) {
+    return BauhubPolygonToolState(
+      active: _coerceBool(map['active']),
+      vertexCount: (map['vertexCount'] as num?)?.toInt() ?? 0,
+      canUndo: _coerceBool(map['canUndo']),
+      canRedo: _coerceBool(map['canRedo']),
+    );
+  }
+
+  /// Native event channels can deliver booleans either as Dart `bool` or as `int 0/1` depending
+  /// on how the value was boxed on the native side (notably `@(intExpr)` on iOS produces
+  /// `NSNumber numberWithInt:` which Flutter's standard codec marshals to Dart `int`, not
+  /// `bool`). Treat any truthy numeric value as `true` so the Flutter UI doesn't have to know
+  /// or care about the wire encoding.
+  static bool _coerceBool(Object? value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    return false;
+  }
+}
+
+/// Listener signature for [startBauhubPolygonStateListener].
+typedef void BauhubPolygonStateListener(BauhubPolygonToolState state);
 
 /// Listens for when local annotation changes have been committed to the document.
 ///
@@ -585,6 +645,31 @@ CancelListener startAppBarButtonPressedListener(AppBarButtonPressedListener list
   var subscription = _appBarButtonPressedChannel
       .receiveBroadcastStream(eventSinkId.appBarButtonPressedId.index)
       .listen(listener, cancelOnError: true);
+
+  return () {
+    subscription.cancel();
+  };
+}
+
+/// Listens for in-progress Bauhub polygon tool state changes (vertex add, undo, redo, commit,
+/// cancel). The Flutter annotation toolbar uses this to swap its chrome (Point/Area pill vs.
+/// active-polygon Cancel / Undo / Redo / Done bar) the moment the first vertex is placed —
+/// matching Figma 4842:13857.
+///
+/// ```dart
+/// final cancel = startBauhubPolygonStateListener((state) {
+///   print('polygon active=${state.active} vertices=${state.vertexCount}');
+/// });
+/// ```
+CancelListener startBauhubPolygonStateListener(
+    BauhubPolygonStateListener listener) {
+  var subscription = _bauhubPolygonStateChannel
+      .receiveBroadcastStream(eventSinkId.bauhubPolygonStateId.index)
+      .listen((event) {
+    if (event is Map) {
+      listener(BauhubPolygonToolState.fromMap(event.cast<Object?, Object?>()));
+    }
+  }, cancelOnError: true);
 
   return () {
     subscription.cancel();

@@ -76,6 +76,19 @@ public class ViewerImpl {
         toolManager.addAnnotationModificationListener(mAnnotationModificationListener);
         toolManager.addAnnotationsSelectionListener(mAnnotationsSelectionListener);
         toolManager.addPdfDocModificationListener(mPdfDocModificationListener);
+        // Selected annotations must look identical to unselected ones (the page-rendered AP).
+        // PDFTron's "real-time annot edit" overlays an [AnnotView] (a fresh re-render based on
+        // the annot's [IC] / [Color] / [Opacity] alone — our custom translucent {@code AP/N}
+        // is ignored). For Bauhub squares, [AnnotDrawingView] then draws a fresh bitmap of the
+        // AP which is acceptable; for Bauhub polygons it draws a path with {@code IC × CA},
+        // collapsing the {@code fill 0.3 + stroke 1.0} appearance into a flat pastel that
+        // users see as "all solid on click". Disabling real-time edit makes
+        // {@code AnnotEdit.canAddAnnotView} return false: no overlay is created, the page-level
+        // AP keeps rendering during selection, and only the selection box / drag handles
+        // (drawn by [AnnotEdit.onDraw]) are added on top — exactly the iOS behaviour. The
+        // trade-off is that resize/move shows the new size only at gesture-end (no in-flight
+        // preview), which the user explicitly preferred over the colour change.
+        toolManager.setRealTimeAnnotEdit(false);
     }
 
     public void addListeners(@NonNull PdfViewCtrlTabFragment2 pdfViewCtrlTabFragment) {
@@ -110,6 +123,15 @@ public class ViewerImpl {
      * Successful Bauhub custom area appearances clear PDF {@code IC} (fill is only in {@code AP}).
      * Adding another annotation can regenerate defaults and wipe {@code AP}. Rebuild all Bauhub area
      * appearances (same as post-merge refresh).
+     *
+     * <p>Also runs {@link BauhubAreaPinDecoration#decorateAllMatchingShapes} as a safety net — the
+     * inline pin placement in {@link BauhubShapeMarkupStyle#apply} can silently fail for polygon
+     * creates (the {@link com.pdftron.pdf.tools.AdvancedShapeCreate#commit} path releases its
+     * write lock before the deferred {@code ctrl.post} stamp runnable fires, so
+     * {@link com.pdftron.pdf.Stamper#stampImage} can drop without raising). Re-decorating every
+     * Bauhub area/polygon on the doc here matches the XFDF import path that always places pins
+     * correctly, and {@code alreadyHasPin}/{@code hasPinStampNearShapeCorner} keep this a no-op for
+     * shapes that already got their pin from the tool-level stamp.
      */
     private void reapplyBauhubTranslucentAreaAppearancesAfterOtherAnnotChange() {
         PDFViewCtrl pdfViewCtrl = mViewerComponent.getPdfViewCtrl();
@@ -124,6 +146,11 @@ public class ViewerImpl {
             }
             locked = true;
             BauhubShapeMarkupStyle.reapplyTranslucentAppearancesAfterGlobalRefresh(doc);
+            try {
+                BauhubAreaPinDecoration.decorateAllMatchingShapes(pdfViewCtrl, doc);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
@@ -146,6 +173,41 @@ public class ViewerImpl {
         mMainHandler.postDelayed(mBauhubAreaReapplyRunnable, 75);
     }
 
+    /**
+     * Returns true if any annotation in {@code map} is a Bauhub area markup (square / polygon with
+     * a {@code Comment} / {@code Attachment} / {@code Task} subject). Used to skip the (somewhat
+     * heavy) global reapply on modifications that touch only non-Bauhub annotations (e.g. a sticky
+     * note dragged across the page does not need our translucent AP rebuilt).
+     */
+    private static boolean containsBauhubAreaAnnotation(@Nullable Map<Annot, Integer> map) {
+        if (map == null || map.isEmpty()) {
+            return false;
+        }
+        for (Annot annot : map.keySet()) {
+            try {
+                if (annot == null || !annot.isValid() || !annot.isMarkup()) {
+                    continue;
+                }
+                int t = annot.getType();
+                if (t != Annot.e_Square && t != Annot.e_Polygon) {
+                    continue;
+                }
+                String subj = new Markup(annot).getSubject();
+                if (subj == null) {
+                    continue;
+                }
+                if ("Comment".equalsIgnoreCase(subj)
+                        || "Attachment".equalsIgnoreCase(subj)
+                        || "Task".equalsIgnoreCase(subj)) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return false;
+    }
+
+
     private ToolManager.AnnotationModificationListener mAnnotationModificationListener = new ToolManager.AnnotationModificationListener() {
         @Override
         public void onAnnotationsAdded(Map<Annot, Integer> map) {
@@ -161,6 +223,18 @@ public class ViewerImpl {
 
         @Override
         public void onAnnotationsModified(Map<Annot, Integer> map, Bundle bundle) {
+            // PDFTron rebuilds the appearance stream after a resize/move (AnnotEdit.onUp →
+            // updateAnnot → refreshAppearance). The default rebuild ignores our custom translucent
+            // {@code AP/N} (fill 0.3, stroke 1.0) and falls back to {@code IC × CA} at the default
+            // opacity, which collapses the area into a flat solid colour. Reapply the Bauhub
+            // appearance for every modified Bauhub area annot so resizing/moving keeps the
+            // translucent fill + opaque outline. The 75 ms debounce inside
+            // [scheduleBauhubTranslucentAreaReapplyAfterOtherAnnotChange] coalesces drag-end +
+            // any subsequent modify events; the visual change is imperceptible to the user.
+            if (containsBauhubAreaAnnotation(map)) {
+                scheduleBauhubTranslucentAreaReapplyAfterOtherAnnotChange();
+            }
+
             PluginUtils.emitAnnotationChangedEvent(PluginUtils.KEY_ACTION_MODIFY, map, mViewerComponent);
 
             PluginUtils.emitExportAnnotationCommandEvent(PluginUtils.KEY_ACTION_MODIFY, map, mViewerComponent);
@@ -251,8 +325,6 @@ public class ViewerImpl {
     private ToolManager.AnnotationsSelectionListener mAnnotationsSelectionListener = new ToolManager.AnnotationsSelectionListener() {
         @Override
         public void onAnnotationsSelectionChanged(HashMap<Annot, Integer> hashMap) {
-            // Do not touch Bauhub area fill/stroke or appearances on selection — avoids Android
-            // composite glitches and keeps colors stable while selected.
             PluginUtils.emitAnnotationsSelectedEvent(hashMap, mViewerComponent);
         }
     };

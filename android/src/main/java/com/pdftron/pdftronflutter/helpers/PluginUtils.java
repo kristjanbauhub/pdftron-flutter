@@ -302,6 +302,10 @@ public class PluginUtils {
     public static final String FUNCTION_SHOW_ANNOTATION = "showAnnotation";
     // Hygen Generated Event Listeners
     public static final String EVENT_APP_BAR_BUTTON_PRESSED = "app_bar_button_pressed_event";
+    // Broadcasts in-progress Bauhub polygon tool state ({active, vertexCount, canUndo, canRedo}).
+    // Dart uses this to swap the annotation-toolbar chrome into its active-polygon layout the
+    // moment the first vertex is placed.
+    public static final String EVENT_BAUHUB_POLYGON_STATE = "bauhub_polygon_state_event";
     public static final String FUNCTION_GET_PLATFORM_VERSION = "getPlatformVersion";
     public static final String FUNCTION_GET_VERSION = "getVersion";
     public static final String FUNCTION_INITIALIZE = "initialize";
@@ -321,6 +325,11 @@ public class PluginUtils {
     public static final String FUNCTION_GET_DOCUMENT_PATH = "getDocumentPath";
     public static final String FUNCTION_SET_TOOL_MODE = "setToolMode";
     public static final String FUNCTION_SET_BAUHUB_AREA_MARKUP_COLORS = "setBauhubAreaMarkupColors";
+    // Bauhub polygon in-progress controls (Cancel / Undo-point / Redo-point). These act on the
+    // active BauhubPolygonMarkupTool, NOT the document-level undo manager — hence separate names.
+    public static final String FUNCTION_BAUHUB_POLYGON_CANCEL = "bauhubCancelActiveShape";
+    public static final String FUNCTION_BAUHUB_POLYGON_UNDO = "bauhubUndoActiveShapePoint";
+    public static final String FUNCTION_BAUHUB_POLYGON_REDO = "bauhubRedoActiveShapePoint";
     public static final String FUNCTION_SET_FLAG_FOR_FIELDS = "setFlagForFields";
     public static final String FUNCTION_SET_VALUES_FOR_FIELDS = "setValuesForFields";
     public static final String FUNCTION_IMPORT_ANNOTATIONS = "importAnnotations";
@@ -2424,6 +2433,24 @@ public class PluginUtils {
                 result.success(null);
                 break;
             }
+            case FUNCTION_BAUHUB_POLYGON_CANCEL: {
+                result.success(
+                        com.pdftron.pdftronflutter.bauhub.BauhubPolygonMarkupTool
+                                .cancelActiveShape());
+                break;
+            }
+            case FUNCTION_BAUHUB_POLYGON_UNDO: {
+                result.success(
+                        com.pdftron.pdftronflutter.bauhub.BauhubPolygonMarkupTool
+                                .undoActiveShapePoint());
+                break;
+            }
+            case FUNCTION_BAUHUB_POLYGON_REDO: {
+                result.success(
+                        com.pdftron.pdftronflutter.bauhub.BauhubPolygonMarkupTool
+                                .redoActiveShapePoint());
+                break;
+            }
             case FUNCTION_SET_FLAG_FOR_FIELDS: {
                 checkFunctionPrecondition(component);
                 ArrayList<String> fieldNames = call.argument(KEY_FIELD_NAMES);
@@ -3143,6 +3170,15 @@ public class PluginUtils {
                 }
             }
         }
+        // CRITICAL: every [MethodChannel.Result] must be terminated with success / error or the
+        // awaiting Dart Future hangs forever. Missing this call previously caused
+        // [_syncActivityFeedFilterToCanvas] in pdftron_viewer.dart to deadlock on the very first
+        // delete: the sync's `await controller.deleteAnnotations([parsed])` never resolved, the
+        // outer `_activitySyncRunning` gate stayed `true`, and every subsequent Hide/Show toggle
+        // was silently coalesced into a no-op so deleted annotations could never be re-merged.
+        // Same root cause that previously broke `selectAnnotation`; treat all native handlers
+        // identically and always finalise the result before returning.
+        result.success(null);
     }
 
     private static void selectAnnotation(String annotation, MethodChannel.Result result, ViewerComponent component) throws PDFNetException, JSONException {
@@ -3164,6 +3200,12 @@ public class PluginUtils {
         if (!Utils.isNullOrEmpty(annotationId)) {
             toolManager.selectAnnot(annotationId, annotationPageNumber);
         }
+        // CRITICAL: every [MethodChannel.Result] must be terminated with success / error or the
+        // awaiting Dart Future hangs forever. Missing this call was the root cause of the activity-feed
+        // thread modal never appearing on Android — [_openActivityDetailForActivity] in pdftron_viewer.dart
+        // blocked on `await _controller!.selectAnnotation(annot)` indefinitely so the
+        // `await _showBauhubAnnotationDetailSheetInline(...)` line was never reached.
+        result.success(null);
     }
 
     private static void hideAnnotation(String annotation, MethodChannel.Result result, ViewerComponent component)  throws PDFNetException, JSONException {
@@ -3183,11 +3225,22 @@ public class PluginUtils {
         Annot validAnnotation = ViewerUtils.getAnnotById(pdfViewCtrl, annotationId, annotationPageNumber);
 
         if (validAnnotation == null || !validAnnotation.isValid()) {
+            // Same contract as selectAnnotation: every Result must terminate or the
+            // awaiting Dart Future hangs forever (the activity-feed filter pass would
+            // block silently on the first missing annotation).
+            result.success(null);
             return;
         }
 
         pdfViewCtrl.hideAnnotation(validAnnotation);
+        // Mirror onto any decorative corner pin attached to a Bauhub area markup so
+        // the canvas never shows a floating pin without its area. Pure point-pin
+        // annotations are no-ops in here (they don't have a parent shape), so the
+        // hide/show above already takes care of them.
+        BauhubAreaPinDecoration.setDecorativePinsVisibilityForParentShape(
+                pdfViewCtrl, pdfDoc, validAnnotation, annotationPageNumber, false);
         pdfViewCtrl.update(validAnnotation, annotationPageNumber);
+        result.success(null);
     }
 
     private static void hideAllAnnotations(Integer pageNumber, MethodChannel.Result result, ViewerComponent component)  throws PDFNetException, JSONException {
@@ -3224,11 +3277,17 @@ public class PluginUtils {
         Annot validAnnotation = ViewerUtils.getAnnotById(pdfViewCtrl, annotationId, annotationPageNumber);
 
         if (validAnnotation == null || !validAnnotation.isValid()) {
+            result.success(null);
             return;
         }
 
         pdfViewCtrl.showAnnotation(validAnnotation);
+        // Re-show the matching decorative corner pin so a previously filtered-out
+        // Bauhub area markup gets its full visual back (area + pin) in one call.
+        BauhubAreaPinDecoration.setDecorativePinsVisibilityForParentShape(
+                pdfViewCtrl, pdfDoc, validAnnotation, annotationPageNumber, true);
         pdfViewCtrl.update(validAnnotation, annotationPageNumber);
+        result.success(null);
     }
 
     private static void openAnnotationList(MethodChannel.Result result, ViewerComponent component) {
@@ -3585,6 +3644,10 @@ public class PluginUtils {
                 pdfViewCtrl.docUnlock();
             }
         }
+        // Same contract as deleteAnnotations / selectAnnotation: every result must be terminated
+        // or the awaiting Dart Future hangs. setFlagsForAnnotations is currently fire-and-forget
+        // from Dart, but not finalising the result still leaks platform-channel messages.
+        result.success(null);
     }
 
     private static boolean isValidJSONValue(JSONObject json, String key) throws JSONException {
@@ -3684,6 +3747,8 @@ public class PluginUtils {
                 pdfViewCtrl.docUnlock();
             }
         }
+        // Same contract as deleteAnnotations / selectAnnotation: every result must be terminated.
+        result.success(null);
     }
 
     private static void importAnnotationCommand(String xfdfCommand, MethodChannel.Result result, ViewerComponent component) throws PDFNetException {
@@ -4007,6 +4072,9 @@ public class PluginUtils {
         } else if ("BauhubTaskAreaTool".equals(modeKey)) {
             tool = (Tool) toolManager.createTool(BauhubAreaMarkupTool.MODE, previous);
             ((BauhubAreaMarkupTool) tool).configure("Task");
+        } else if ("BauhubTaskPolygonTool".equals(modeKey)) {
+            tool = (Tool) toolManager.createTool(BauhubPolygonMarkupTool.MODE, previous);
+            ((BauhubPolygonMarkupTool) tool).configure("Task");
         } else if (modeKey != null && modeKey.contains("BauhubTaskTool")) {
             tool = (Tool) toolManager.createTool(BauhubTaskTool.MODE, previous);
             int taskPinRaw = BauhubWebPinAssets.taskStampRawId(context);
@@ -4063,9 +4131,33 @@ public class PluginUtils {
             if (!Utils.isNullOrEmpty(annotationId)) {
                 ArrayList<Annot> annotations = pdfViewCtrl.getAnnotationsOnPage(annotationPageNumber);
                 for (Annot ann : annotations) {
-                    String uniqueId = ann.getUniqueID().toString();
+                    if (ann == null) {
+                        continue;
+                    }
+                    // Other paths in this file (deleteAnnotations, setFlagsForAnnotations,
+                    // raiseAnnotationActionEventOnLeadingAnnotChange, etc.) all null-guard
+                    // getUniqueID() because annotations with no SDF unique-ID (page-default
+                    // markups, anything imported before Bauhub assigned an ID) return null
+                    // here. The previous unconditional `.toString()` NPE'd on the very
+                    // first such annotation and aborted the whole call — which on
+                    // task / comment activity saves bubbled up as a Flutter
+                    // PlatformException("error", "...toString() on a null object reference").
+                    com.pdftron.sdf.Obj uniqueIdObj = ann.getUniqueID();
+                    if (uniqueIdObj == null) {
+                        continue;
+                    }
+                    String uniqueId;
+                    try {
+                        uniqueId = uniqueIdObj.getAsPDFText();
+                    } catch (Exception e) {
+                        continue;
+                    }
+                    if (uniqueId == null) {
+                        continue;
+                    }
                     if (uniqueId.equals(annotationId)) {
                         annot = ann;
+                        break;
                     }
                 }
             }
@@ -4525,6 +4617,51 @@ public class PluginUtils {
 
     // Events
 
+    /**
+     * Deferred Bauhub translucent area appearances + decorative corner pins after open. Running in
+     * {@link PDFViewCtrl#post} avoids racing the viewer's document lock during tab load; a second
+     * {@link PDFViewCtrl#postDelayed} pass catches late hydration. Idempotent thanks to
+     * {@link BauhubAreaPinDecoration}.
+     */
+    private static void scheduleBauhubAreaPinsAfterDocumentOpened(@Nullable PDFViewCtrl pvc) {
+        if (pvc == null) {
+            return;
+        }
+        Runnable task = () -> applyBauhubAreaDecorationAfterDocumentOpen(pvc);
+        pvc.post(task);
+        pvc.postDelayed(task, 450);
+        // Third pass: idempotent decoration; some sessions merge Bauhub annots after the first frames.
+        pvc.postDelayed(task, 900);
+    }
+
+    private static void applyBauhubAreaDecorationAfterDocumentOpen(@NonNull PDFViewCtrl pvc) {
+        boolean locked = false;
+        try {
+            PDFDoc doc = pvc.getDoc();
+            if (doc == null) {
+                return;
+            }
+            pvc.docLock(true);
+            locked = true;
+            BauhubShapeMarkupStyle.reapplyTranslucentAppearancesAfterGlobalRefresh(doc);
+            BauhubAreaPinDecoration.decorateAllMatchingShapes(pvc, doc);
+        } catch (Exception e) {
+            AnalyticsHandlerAdapter.getInstance().sendException(e);
+        } finally {
+            if (locked) {
+                try {
+                    pvc.docUnlock();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        try {
+            pvc.update(true);
+        } catch (Exception ignored) {
+        }
+        pvc.post(() -> BauhubDecorativeAreaPinZoomSync.requestSync(pvc));
+    }
+
     public static void handleDocumentLoaded(final ViewerComponent component) {
         if (component == null) {
             return;
@@ -4546,6 +4683,21 @@ public class PluginUtils {
         }
 
         addListeners(component);
+
+        // After opening a saved PDF, annotations are already in the doc — ToolManager does not replay
+        // synthetic "added" events for every embedded annot, so ViewerImpl's Bauhub reapply path never
+        // runs. Polygon area pins need decorateAllMatchingShapes (XFDF merge already does).
+        //
+        // Do NOT run Bauhub decoration synchronously here: PDFViewCtrl often still holds an internal
+        // doc lock during onTabDocumentLoaded, so docTryLock times out and stamp placement is skipped
+        // entirely; Stamper also requires a write lock (see BauhubAreaPinDecoration). Defer to the
+        // next UI frames with docLock(true), plus one delayed retry for slow opens — same pattern as
+        // ensurePinForNewShape's ctrl.post passes.
+        try {
+            scheduleBauhubAreaPinsAfterDocumentOpened(component.getPdfViewCtrl());
+        } catch (Exception e) {
+            AnalyticsHandlerAdapter.getInstance().sendException(e);
+        }
 
         MethodChannel.Result result = component.getFlutterLoadResult();
         if (result != null) {

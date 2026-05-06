@@ -48,9 +48,11 @@ public final class BauhubShapeMarkupStyle {
     private static volatile int sFillArgb = 0xFF2368E5;
     private static volatile int sStrokeArgb = 0xFF2368E5;
     /**
-     * Custom Bauhub fill lives in {@code AP/N}; when {@code IC} is also set to opaque RGB, Android
-     * composites it when the annot is selected and the area looks solid. We erase {@code IC} after a
-     * successful custom stream and cache the design fill here for reapply when {@code IC} is absent.
+     * Custom Bauhub fill lives in {@code AP/N}; the annotation's {@code IC} is also kept at the
+     * **opaque** brand colour so that web / iOS (which read XFDF and apply
+     * {@code opacity="0.3"} themselves) render the identical translucent fill. We cache the
+     * design colour here as a fall-back source when {@code IC} cannot be read for some reason
+     * (bad RGB component count, decode failure) so reapply still produces a correct AP.
      */
     private static final ConcurrentHashMap<Long, Integer> BAUHUB_AREA_OPAQUE_FILL_ARGB_BY_OBJ =
             new ConcurrentHashMap<>();
@@ -211,13 +213,34 @@ public final class BauhubShapeMarkupStyle {
         return v != null ? v : fallbackArgb;
     }
 
-    /** Drop PDF {@code IC} so the viewer does not paint a second (opaque) fill over {@code AP/N}. */
-    private static void stripSquarePolygonInteriorColorAfterBauhubCustomAp(Annot annot) {
+    /**
+     * Stores the **opaque** brand fill colour as the annotation's {@code IC} (interior colour).
+     * This is the value web and iOS read from the exported XFDF — they apply their own
+     * {@code opacity="0.3"} on top, so {@code IC} must be the design colour at full saturation.
+     * Writing a white-blended pastel here (an earlier Android-only workaround for PDFTron's
+     * {@code AnnotEdit} overlay rendering during selection) caused web / iOS to render
+     * {@code blended × 0.3} — a washed-out very light fill. The fix is twofold:
+     * <ul>
+     *   <li>Android no longer needs a blended {@code IC} because
+     *       {@code ToolManager.setRealTimeAnnotEdit(false)} (set in [ViewerImpl]) suppresses
+     *       the {@code AnnotView} overlay during selection — the page-level custom {@code AP/N}
+     *       (with {@code fill 0.3 + stroke 1.0} baked in) keeps rendering, so {@code IC} no
+     *       longer affects what the user sees on Android.</li>
+     *   <li>Cross-platform parity: web / iOS render {@code IC × opacity = opaque × 0.3 =
+     *       translucent} — identical to Android's AP rendering. No more
+     *       lighter-after-Android-edit reports.</li>
+     * </ul>
+     * <p>Hit-testing: a non-empty {@code IC} still makes the whole polygon interior tappable
+     * (vs. only the thin stroke when {@code IC} is missing) — so opaque {@code IC} is strictly
+     * better than stripped {@code IC} for both visuals and tap behaviour.
+     * <p>{@link #opaqueFillForTranslucentCustomStream} continues to round-trip blended {@code IC}
+     * values from older Android saves back to opaque on import — backward-compatible.
+     */
+    private static void setOpaqueInteriorColorAfterBauhubCustomAp(
+            @NonNull Annot annot, int opaqueFillArgb) {
         try {
-            Obj d = annot.getSDFObj();
-            if (d != null && !d.isNull()) {
-                d.erase("IC");
-            }
+            Markup m = new Markup(annot);
+            m.setInteriorColor(argbToColorPt(opaqueFillArgb), 3);
         } catch (Exception ignored) {
         }
     }
@@ -524,9 +547,10 @@ public final class BauhubShapeMarkupStyle {
         }
         ColorPt fillOpaque = argbToColorPt(sFillArgb);
         ColorPt stroke = argbToColorPt(sStrokeArgb);
-        // Do not set opaque IC here: Android composites IC with AP when selected → solid fill. Custom
-        // stream carries translucent fill; IC is only for the fallback path below.
         annot.setColor(stroke, 3);
+        // CA = 1.0; translucency is baked into the AP fill alpha (matches iOS / web XFDF parity:
+        // unselected render = AP × 1.0 = (fill 0.3, stroke 1.0)). Setting CA < 1.0 here also
+        // dimmed the stroke to 0.3, which users perceived as a "faded outline" on non-white pages.
         markup.setOpacity(1.0);
         try {
             Annot.BorderStyle bs = annot.getBorderStyle();
@@ -559,6 +583,7 @@ public final class BauhubShapeMarkupStyle {
             }
         } catch (Exception ignored) {
         }
+        // fillOpacity = FILL_DISPLAY_OPACITY: bake 0.3 fill alpha + 1.0 stroke alpha into the AP.
         boolean customOk =
                 doc != null
                         && trySetTranslucentAreaMarkupAppearance(
@@ -573,10 +598,18 @@ public final class BauhubShapeMarkupStyle {
             // Avoid drawing the default square border on top of the custom appearance stream (thick red outline).
             zeroSquarePolygonBorderWidthForCustomAppearance(annot);
             rememberBauhubAreaOpaqueFillArgb(annot, rgbArgbFromColorPt(fillOpaque));
-            stripSquarePolygonInteriorColorAfterBauhubCustomAp(annot);
+            setOpaqueInteriorColorAfterBauhubCustomAp(annot, rgbArgbFromColorPt(fillOpaque));
         } else {
-            ColorPt fill = fillArgbBlendedTowardWhite(sFillArgb, FILL_DISPLAY_OPACITY);
-            markup.setInteriorColor(fill, 3);
+            // Fallback (no custom AP): keep IC as the OPAQUE design colour so the exported XFDF
+            // matches web/iOS expectations (they apply opacity="0.3" themselves). Lower CA to
+            // 0.3 so Android's default Square/Polygon render still looks translucent — it would
+            // otherwise paint IC at full alpha. The custom-AP path above keeps CA = 1.0; only this
+            // fallback path needs the CA reduction because the AP isn't carrying the alpha for us.
+            markup.setInteriorColor(argbToColorPt(rgbArgbFromColorPt(fillOpaque)), 3);
+            try {
+                markup.setOpacity(FILL_DISPLAY_OPACITY);
+            } catch (Exception ignored) {
+            }
             try {
                 annot.refreshAppearance();
             } catch (Exception ignored) {
@@ -584,6 +617,107 @@ public final class BauhubShapeMarkupStyle {
         }
         BauhubAreaPinDecoration.ensurePinForNewShape(tool, annot);
         refreshAreaMarkupViewOnly(tool, annot);
+    }
+
+    /**
+     * Rebuilds translucent custom appearance for one annot if it is a Bauhub square/polygon area.
+     * Caller must hold a write lock on {@link PDFDoc} / {@link PDFViewCtrl} as for other mutators.
+     *
+     * <p>Used after selection on Android: a full-document reapply is heavy and can interact badly
+     * with hit-testing; refreshing only the selected markup restores the fill without walking every page.
+     */
+    public static void reapplyBauhubAreaAppearanceForAnnot(PDFDoc doc, Annot annot) {
+        if (doc == null || annot == null) {
+            return;
+        }
+        try {
+            if (!annot.isValid() || !annot.isMarkup()) {
+                return;
+            }
+            int t = annot.getType();
+            if (t != Annot.e_Square && t != Annot.e_Polygon) {
+                return;
+            }
+            Markup markup = new Markup(annot);
+            String subj = null;
+            try {
+                subj = markup.getSubject();
+            } catch (Exception ignored) {
+            }
+            if (!isBauhubAreaSubject(subj)) {
+                return;
+            }
+            ColorPt fillPt;
+            try {
+                int icn = markup.getInteriorColorCompNum();
+                fillPt =
+                        icn >= 3
+                                ? markup.getInteriorColor()
+                                : argbToColorPt(cachedBauhubAreaOpaqueFillArgb(annot, sFillArgb));
+            } catch (Exception e) {
+                fillPt = argbToColorPt(cachedBauhubAreaOpaqueFillArgb(annot, sFillArgb));
+            }
+            ColorPt strokePt;
+            try {
+                int ccn = annot.getColorCompNum();
+                strokePt = ccn >= 3 ? annot.getColorAsRGB() : argbToColorPt(sStrokeArgb);
+            } catch (Exception e) {
+                strokePt = argbToColorPt(sStrokeArgb);
+            }
+            double lineW = STROKE_WIDTH;
+            try {
+                Annot.BorderStyle bs = annot.getBorderStyle();
+                if (bs != null && bs.getWidth() > 0.1) {
+                    lineW = bs.getWidth();
+                }
+            } catch (Exception ignored) {
+            }
+            try {
+                // CA = 1.0; translucency is baked into the AP fill alpha (matches iOS / web XFDF
+                // parity). See [apply] for full reasoning.
+                markup.setOpacity(1.0);
+            } catch (Exception ignored) {
+            }
+            ColorPt fillOpaqueForAp = opaqueFillForTranslucentCustomStream(fillPt);
+            // fillOpacity = FILL_DISPLAY_OPACITY: AP bakes (fill 0.3 alpha, stroke 1.0 alpha).
+            boolean ok =
+                    trySetTranslucentAreaMarkupAppearance(
+                            doc,
+                            annot,
+                            fillOpaqueForAp,
+                            strokePt,
+                            FILL_DISPLAY_OPACITY,
+                            lineW,
+                            MIN_SQUARE_SIDE_FOR_TRANSLUCENT_AP);
+            if (!ok) {
+                ok =
+                        trySetTranslucentAreaMarkupAppearance(
+                                doc,
+                                annot,
+                                fillOpaqueForAp,
+                                strokePt,
+                                FILL_DISPLAY_OPACITY,
+                                lineW,
+                                0.001);
+            }
+            if (ok) {
+                zeroSquarePolygonBorderWidthForCustomAppearance(annot);
+                rememberBauhubAreaOpaqueFillArgb(annot, rgbArgbFromColorPt(fillOpaqueForAp));
+                setOpaqueInteriorColorAfterBauhubCustomAp(annot, rgbArgbFromColorPt(fillOpaqueForAp));
+            } else {
+                // Fallback (no custom AP): keep IC as the OPAQUE design colour for cross-platform
+                // parity (web / iOS apply opacity="0.3" themselves and read IC at face value), and
+                // lower CA to 0.3 so Android's default Square/Polygon render also looks translucent.
+                try {
+                    markup.setInteriorColor(argbToColorPt(rgbArgbFromColorPt(fillOpaqueForAp)), 3);
+                    markup.setOpacity(FILL_DISPLAY_OPACITY);
+                    annot.refreshAppearance();
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (PDFNetException e) {
+            AnalyticsHandlerAdapter.getInstance().sendException(e);
+        }
     }
 
     /**
@@ -603,83 +737,7 @@ public final class BauhubShapeMarkupStyle {
                     if (annot == null || !annot.isValid() || !annot.isMarkup()) {
                         continue;
                     }
-                    int t = annot.getType();
-                    if (t != Annot.e_Square && t != Annot.e_Polygon) {
-                        continue;
-                    }
-                    Markup markup = new Markup(annot);
-                    String subj = null;
-                    try {
-                        subj = markup.getSubject();
-                    } catch (Exception ignored) {
-                    }
-                    if (!isBauhubAreaSubject(subj)) {
-                        continue;
-                    }
-                    ColorPt fillPt;
-                    try {
-                        int icn = markup.getInteriorColorCompNum();
-                        fillPt =
-                                icn >= 3
-                                        ? markup.getInteriorColor()
-                                        : argbToColorPt(cachedBauhubAreaOpaqueFillArgb(annot, sFillArgb));
-                    } catch (Exception e) {
-                        fillPt = argbToColorPt(cachedBauhubAreaOpaqueFillArgb(annot, sFillArgb));
-                    }
-                    ColorPt strokePt;
-                    try {
-                        int ccn = annot.getColorCompNum();
-                        strokePt = ccn >= 3 ? annot.getColorAsRGB() : argbToColorPt(sStrokeArgb);
-                    } catch (Exception e) {
-                        strokePt = argbToColorPt(sStrokeArgb);
-                    }
-                    double lineW = STROKE_WIDTH;
-                    try {
-                        Annot.BorderStyle bs = annot.getBorderStyle();
-                        if (bs != null && bs.getWidth() > 0.1) {
-                            lineW = bs.getWidth();
-                        }
-                    } catch (Exception ignored) {
-                    }
-                    try {
-                        markup.setOpacity(1.0);
-                    } catch (Exception ignored) {
-                    }
-                    ColorPt fillOpaqueForAp = opaqueFillForTranslucentCustomStream(fillPt);
-                    boolean ok =
-                            trySetTranslucentAreaMarkupAppearance(
-                                    doc,
-                                    annot,
-                                    fillOpaqueForAp,
-                                    strokePt,
-                                    FILL_DISPLAY_OPACITY,
-                                    lineW,
-                                    MIN_SQUARE_SIDE_FOR_TRANSLUCENT_AP);
-                    if (!ok) {
-                        ok =
-                                trySetTranslucentAreaMarkupAppearance(
-                                        doc,
-                                        annot,
-                                        fillOpaqueForAp,
-                                        strokePt,
-                                        FILL_DISPLAY_OPACITY,
-                                        lineW,
-                                        0.001);
-                    }
-                    if (ok) {
-                        zeroSquarePolygonBorderWidthForCustomAppearance(annot);
-                        rememberBauhubAreaOpaqueFillArgb(
-                                annot, rgbArgbFromColorPt(fillOpaqueForAp));
-                        stripSquarePolygonInteriorColorAfterBauhubCustomAp(annot);
-                    } else {
-                        int fa = rgbArgbFromColorPt(fillOpaqueForAp);
-                        ColorPt soft = fillArgbBlendedTowardWhite(fa, FILL_DISPLAY_OPACITY);
-                        try {
-                            markup.setInteriorColor(soft, 3);
-                            annot.refreshAppearance();
-                        } catch (Exception ignored) {
-                        }
-                    }
+                    reapplyBauhubAreaAppearanceForAnnot(doc, annot);
                 }
             }
         } catch (PDFNetException e) {
@@ -931,6 +989,32 @@ public final class BauhubShapeMarkupStyle {
         g2 = Math.max(0, Math.min(255, g2));
         b2 = Math.max(0, Math.min(255, b2));
         return Utils.color2ColorPt(0xFF000000 | (r2 << 16) | (g2 << 8) | b2);
+    }
+
+    /**
+     * True for Bauhub square/polygon area markups (subjects Comment / Attachment / Task).
+     * <p>Android redraws selected annotations in a way that can make the custom translucent fill
+     * look empty; {@link com.pdftron.pdftronflutter.helpers.ViewerImpl} uses this to schedule a
+     * translucency reapply after selection.
+     */
+    public static boolean isBauhubAreaShapeAnnot(@Nullable Annot annot) {
+        if (annot == null) {
+            return false;
+        }
+        try {
+            if (!annot.isValid() || !annot.isMarkup()) {
+                return false;
+            }
+            int type = annot.getType();
+            if (type != Annot.e_Square && type != Annot.e_Polygon) {
+                return false;
+            }
+            return isBauhubAreaSubject(new Markup(annot).getSubject());
+        } catch (PDFNetException e) {
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static boolean isBauhubAreaSubject(String subj) {

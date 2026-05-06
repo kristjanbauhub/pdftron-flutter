@@ -225,6 +225,13 @@ public final class BauhubStampPlacement {
                 stampAnnot.setFlag(Annot.e_locked, true);
             } catch (Exception ignored) {
             }
+            // Let taps reach the parent square/polygon: the pin is visual-only. Without this, the
+            // topmost stamp can win hit-testing near the corner and the shape never receives the tap
+            // (more noticeable on polygons with small screen-space edges).
+            try {
+                stampAnnot.setFlag(Annot.e_read_only, true);
+            } catch (Exception ignored) {
+            }
         }
         pdfViewCtrl.update(stampAnnot, pageNum);
         return stampAnnot;

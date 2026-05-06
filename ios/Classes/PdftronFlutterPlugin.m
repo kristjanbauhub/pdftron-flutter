@@ -40,8 +40,12 @@ static BOOL BauhubTryUint32FromFlutterColorArg(id value, NSUInteger *outArgb);
 static void BauhubApplyAreaToolDrawPreviewDefaults(PTPDFViewCtrl *pdfViewCtrl);
 static void BauhubScheduleAreaPinStamp(PTPDFViewCtrl *pdfViewCtrl, int pageHint, PTAnnot *shapeAnnot);
 static void BauhubRestoreTranslucentAreaMarkupAppearancesInDoc(PTPDFDoc *doc);
+static int BauhubFindPageNumberForAnnotInDoc(PTPDFDoc *doc, PTAnnot *target);
 static UIImage *BauhubLoadTemplateImageNamed(NSString *name);
 static void BauhubScheduleReapplyBauhubAreaMarkupStyle(PTPDFViewCtrl *pdfViewCtrl, PTAnnot *annot, int pageNumber, NSString *subject);
+// Forward decl so [- deleteAnnotations:] can reach it without reordering the
+// rest of the bauhub area-pin section.
+void PTBauhubRemoveDecorativePinsWhenParentShapeRemoved(PTPDFViewCtrl *pdfViewCtrl, PTPDFDoc *doc, PTAnnot *shapeAnnot, int pageNumber);
 
 static BOOL BauhubXfdfAttributeStringHasBauhubAreaSubject(NSString *attrs) {
     if (attrs.length == 0) {
@@ -479,6 +483,8 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
 
     [appBarButtonPressedEventChannel setStreamHandler:self];
 
+    FlutterEventChannel* bauhubPolygonStateEventChannel = [FlutterEventChannel eventChannelWithName:PTBauhubPolygonStateEventKey binaryMessenger:messenger];
+    [bauhubPolygonStateEventChannel setStreamHandler:self];
 }
 
 #pragma mark - Configurations
@@ -1570,6 +1576,9 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
         case appBarButtonPressedId:
             self.appBarButtonPressedEventSink = events;
             break;
+        case bauhubPolygonStateId:
+            [BauhubPolygonMarkupTool setStateEventSink:events];
+            break;
     }
     
     return Nil;
@@ -1632,6 +1641,9 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
             break;
         case appBarButtonPressedId:
             self.appBarButtonPressedEventSink = nil;
+            break;
+        case bauhubPolygonStateId:
+            [BauhubPolygonMarkupTool setStateEventSink:nil];
             break;
     }
     
@@ -1937,6 +1949,15 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
             }
         }
         result(nil);
+    } else if ([call.method isEqualToString:PTBauhubCancelActiveShapeKey]) {
+        PTDocumentController *dc = [self getDocumentController];
+        result(@([BauhubPolygonMarkupTool cancelActiveShapeWithToolManager:dc.toolManager]));
+    } else if ([call.method isEqualToString:PTBauhubUndoActiveShapePointKey]) {
+        PTDocumentController *dc = [self getDocumentController];
+        result(@([BauhubPolygonMarkupTool undoActiveShapePointWithToolManager:dc.toolManager]));
+    } else if ([call.method isEqualToString:PTBauhubRedoActiveShapePointKey]) {
+        PTDocumentController *dc = [self getDocumentController];
+        result(@([BauhubPolygonMarkupTool redoActiveShapePointWithToolManager:dc.toolManager]));
     } else if ([call.method isEqualToString:PTSetFlagForFieldsKey]) {
         NSArray *fieldNames = [PdftronFlutterPlugin PT_idAsArray:call.arguments[PTFieldNamesArgumentKey]];
         NSNumber *flag = [PdftronFlutterPlugin PT_idAsNSNumber:call.arguments[PTFlagArgumentKey]];
@@ -2559,8 +2580,15 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
             PTPage *page = [annot GetPage];
             if (page && [page IsValid]) {
                 int pageNumber = [page GetIndex];
+                // Bauhub area markups (square/polygon Comment/Attachment/Task)
+                // own a separate decorative corner-pin stamp linked by custom
+                // data — without this, deleting the parent leaves the pin
+                // orphaned on the page (mirrors the Android `onAnnotationsPreRemove`
+                // hook in `ViewerImpl`).
+                PTBauhubRemoveDecorativePinsWhenParentShapeRemoved(
+                    documentController.pdfViewCtrl, doc, annot, pageNumber);
                 [documentController.toolManager willRemoveAnnotation:annot onPageNumber:pageNumber];
-                
+
                 [page AnnotRemoveWithAnnot:annot];
                 [documentController.toolManager annotationRemoved:annot onPageNumber:pageNumber];
             }
@@ -2709,8 +2737,23 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
         return;
     }
     
+    if (annot == nil || ![annot IsValid]) {
+        // Activity-feed filter calls hide preemptively — annotations that
+        // weren't merged (e.g. resolved rows skipped at import) simply don't
+        // exist in the doc yet. Mirrors Android: every channel result must
+        // terminate or the awaiting Dart Future hangs forever.
+        flutterResult(nil);
+        return;
+    }
+    
     [documentController.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
         [documentController.pdfViewCtrl HideAnnotation:annot];
+        // Mirror onto any decorative corner pin attached to a Bauhub area markup so
+        // the canvas never shows a floating pin without its area. Pure point-pin
+        // annotations are no-ops in here (they don't have a parent shape), so the
+        // [HideAnnotation:] above already handles them.
+        PTBauhubSetDecorativePinsVisibilityForParentShape(
+            documentController.pdfViewCtrl, doc, annot, pageNumber, NO);
         [documentController.pdfViewCtrl UpdateWithAnnot:annot page_num:pageNumber];
     } error:&error];
     
@@ -2782,8 +2825,19 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
         return;
     }
     
+    if (annot == nil || ![annot IsValid]) {
+        // Same as hideAnnotation: activity-feed filter calls show preemptively
+        // for annotations that the import-on-demand path hasn't merged yet.
+        flutterResult(nil);
+        return;
+    }
+    
     [documentController.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
         [documentController.pdfViewCtrl ShowAnnotation:annot];
+        // Re-show the matching decorative corner pin so a previously filtered-out
+        // Bauhub area markup gets its full visual back (area + pin) in one call.
+        PTBauhubSetDecorativePinsVisibilityForParentShape(
+            documentController.pdfViewCtrl, doc, annot, pageNumber, YES);
         [documentController.pdfViewCtrl UpdateWithAnnot:annot page_num:pageNumber];
     } error:&error];
     
@@ -3540,7 +3594,7 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
         // multi-select not implemented
     } else if ([toolMode isEqualToString:@"BauhubCommentAreaTool"] || [toolMode isEqualToString:@"BauhubAttachmentAreaTool"] || [toolMode isEqualToString:@"BauhubTaskAreaTool"]) {
         toolClass = [BauhubRectangleMarkupTool class];
-    } else if ([toolMode isEqualToString:@"BauhubCommentPolygonTool"] || [toolMode isEqualToString:@"BauhubAttachmentPolygonTool"]) {
+    } else if ([toolMode isEqualToString:@"BauhubCommentPolygonTool"] || [toolMode isEqualToString:@"BauhubAttachmentPolygonTool"] || [toolMode isEqualToString:@"BauhubTaskPolygonTool"]) {
         toolClass = [BauhubPolygonMarkupTool class];
     } else if ([toolMode isEqualToString:@"BauhubCommentStampTool"] || [toolMode isEqualToString:@"BauhubAttachmentStampTool"]) {
         toolClass = [BauhubPinStampTool class];
@@ -3628,6 +3682,18 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
         toolClass = [PTPanTool class];
     }
 
+    // Match Android's PluginUtils.setToolMode behaviour: an empty / unknown
+    // mode key falls back to Pan instead of being a silent no-op. Without
+    // this, Flutter's `_controller.setToolMode("")` (used as the universal
+    // "disarm whatever Bauhub tool is active" call after a pin lands) left
+    // BauhubTaskTool / BauhubPinStampTool armed on iOS — the next tap then
+    // dropped a second pin even though the toolbar UI said no tool was
+    // selected. The map above already lists every legitimate tool key, so a
+    // null `toolClass` here always means "user wants to stop drawing".
+    if (toolClass == Nil && [toolMode length] == 0) {
+        toolClass = [PTPanTool class];
+    }
+
     if (toolClass) {
         PTTool *tool = [documentController.toolManager changeTool:toolClass];
 
@@ -3670,6 +3736,8 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
                 polyTool.bauhubSubject = @"Comment";
             } else if ([toolMode isEqualToString:@"BauhubAttachmentPolygonTool"]) {
                 polyTool.bauhubSubject = @"Attachment";
+            } else if ([toolMode isEqualToString:@"BauhubTaskPolygonTool"]) {
+                polyTool.bauhubSubject = @"Task";
             }
         }
 
@@ -4531,12 +4599,19 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
     self.touchPtPage = [self.pdfViewCtrl ConvScreenPtToPagePt:[[PTPDFPoint alloc] initWithPx:self.endPoint.x py:self.endPoint.y] page_num:_pageNumber];
 
     UIImage *rawImage = [UIImage imageNamed:self.taskImageName];
-    
+
     if (rawImage) {
         self.image = [self correctForRotation:rawImage];
         [self createImageStamp];
     } else {
-        UIImage *defaultImage = [UIImage imageNamed:@"task_111111"];
+        // Mirror Android: prefer the red web pin (task_dd1111) over the legacy
+        // black task_111111 fallback so a stamp placed before
+        // setTaskImageName: lands (or with an unknown / missing color asset)
+        // still uses the brand pin instead of the old black artwork.
+        UIImage *defaultImage = [UIImage imageNamed:@"task_dd1111"];
+        if (!defaultImage) {
+            defaultImage = [UIImage imageNamed:@"task_111111"];
+        }
         if (defaultImage) {
             self.image = [self correctForRotation:defaultImage];
             [self createImageStamp];
@@ -5184,6 +5259,79 @@ void PTBauhubRemoveDecorativePinsWhenParentShapeRemoved(
     }
 }
 
+void PTBauhubSetDecorativePinsVisibilityForParentShape(
+        PTPDFViewCtrl *pdfViewCtrl,
+        PTPDFDoc *doc,
+        PTAnnot *shapeAnnot,
+        int pageNumber,
+        BOOL visible) {
+    if (!pdfViewCtrl || !doc || !shapeAnnot || ![shapeAnnot IsValid]) {
+        return;
+    }
+    PTAnnotType t = [shapeAnnot GetType];
+    if (t != e_ptSquare && t != e_ptPolygon) {
+        return;
+    }
+    PTMarkup *mk = [[PTMarkup alloc] initWithAnn:shapeAnnot];
+    if (![mk IsValid]) {
+        return;
+    }
+    NSString *subj = [mk GetSubject];
+    if (!([subj isEqualToString:@"Comment"] || [subj isEqualToString:@"Attachment"] ||
+          [subj isEqualToString:@"Task"])) {
+        return;
+    }
+    NSString *parentUid = nil;
+    @try {
+        PTObj *uidObj = [shapeAnnot GetUniqueID];
+        if ([uidObj IsValid] && [uidObj IsString]) {
+            parentUid = [uidObj GetAsPDFText];
+        }
+    } @catch (__unused NSException *e) {
+    }
+    if (parentUid.length == 0) {
+        return;
+    }
+    if (pageNumber < 1) {
+        pageNumber = BauhubFindPageNumberForAnnotInDoc(doc, shapeAnnot);
+    }
+    if (pageNumber < 1) {
+        return;
+    }
+    PTPage *page = [doc GetPage:pageNumber];
+    if (!page || ![page IsValid]) {
+        return;
+    }
+    int n = (int)[page GetNumAnnots];
+    for (int i = 0; i < n; i++) {
+        PTAnnot *a = [page GetAnnot:i];
+        if (![a IsValid] || [a GetType] != e_ptStamp) {
+            continue;
+        }
+        NSString *dec = nil;
+        @try {
+            dec = [a GetCustomData:kBauhubDecorativeAreaPinKey];
+        } @catch (__unused NSException *e) {
+        }
+        if (dec.length == 0) {
+            continue;
+        }
+        NSString *puid = nil;
+        @try {
+            puid = [a GetCustomData:kBauhubParentShapeUidKey];
+        } @catch (__unused NSException *e) {
+        }
+        if (puid == nil || ![puid isEqualToString:parentUid]) {
+            continue;
+        }
+        if (visible) {
+            [pdfViewCtrl ShowAnnotation:a];
+        } else {
+            [pdfViewCtrl HideAnnotation:a];
+        }
+    }
+}
+
 /// Flutter may send ARGB as NSNumber (incl. double/long long) or string; returns NO if absent/unsupported (0xFFFFFFFF white is valid).
 static BOOL BauhubTryUint32FromFlutterColorArg(id value, NSUInteger *outArgb) {
     if (value == nil || value == [NSNull null] || outArgb == NULL) {
@@ -5758,19 +5906,13 @@ static NSUInteger BauhubRgbArgbFromColorPt(PTColorPt *c) {
     return 0xFF000000u | ((NSUInteger)r << 16) | ((NSUInteger)g << 8) | (NSUInteger)b;
 }
 
-static PTColorPt *BauhubFillBlendedTowardWhite(NSUInteger argb, double t) {
-    argb = BauhubNormalizeArgb(argb);
-    int r = (int)((argb >> 16) & 0xFF);
-    int g = (int)((argb >> 8) & 0xFF);
-    int b = (int)(argb & 0xFF);
-    int r2 = (int)round(255.0 + (r - 255.0) * t);
-    int g2 = (int)round(255.0 + (g - 255.0) * t);
-    int b2 = (int)round(255.0 + (b - 255.0) * t);
-    r2 = MAX(0, MIN(255, r2));
-    g2 = MAX(0, MIN(255, g2));
-    b2 = MAX(0, MIN(255, b2));
-    return [[PTColorPt alloc] initWithX:r2 / 255.0 y:g2 / 255.0 z:b2 / 255.0 w:0.0];
-}
+// (Removed) BauhubFillBlendedTowardWhite — previously used as the fallback IC value when the
+// custom translucent AP couldn't be built. Writing a white-blended pastel into IC corrupted
+// cross-platform colour parity (web/iOS apply opacity="0.3" on top of IC, so a pre-blended IC
+// became visibly washed-out on every save). Fallback paths now keep IC = opaque + lower CA to
+// 0.3, matching the Android implementation. The Android sister-side keeps a `fillArgbBlendedTowardWhite`
+// helper purely to *recover* the original opaque colour from older Android saves that wrote the
+// blended IC; iOS never had that problem in the success path so no recovery helper is needed here.
 
 static BOOL BauhubPolyLineAppendClosedPath(PTElementBuilder *builder, PTPolyLine *pline) {
     if (!builder || !pline || ![pline IsValid]) {
@@ -5909,6 +6051,90 @@ static BOOL BauhubSetTranslucentAreaMarkupAppearance(
     }
 }
 
+/// Per-annot version: rebuilds the translucent Bauhub AP for a single area markup. No-op for
+/// non-Bauhub annotations. Caller must hold a write lock on the document.
+static void BauhubReapplyTranslucentAreaMarkupAppearanceForAnnotImpl(PTAnnot *a, PTPDFDoc *doc) {
+    if (!a || !doc || !BauhubAnnotShouldReceiveAreaPin(a)) {
+        return;
+    }
+    PTMarkup *m = [[PTMarkup alloc] initWithAnn:a];
+    if (![m IsValid]) {
+        return;
+    }
+    int icn = 0;
+    @try {
+        icn = [m GetInteriorColorCompNum];
+    } @catch (__unused NSException *e) {
+        icn = 0;
+    }
+    PTColorPt *fillPt = nil;
+    if (icn >= 3) {
+        @try {
+            fillPt = [m GetInteriorColor];
+        } @catch (__unused NSException *e) {
+            fillPt = nil;
+        }
+    }
+    if (fillPt == nil) {
+        fillPt = BauhubColorPtFromOpaqueArgb(sBauhubAreaFillArgb);
+    }
+    PTColorPt *strokePt = nil;
+    int ccn = 0;
+    @try {
+        ccn = [a GetColorCompNum];
+    } @catch (__unused NSException *e) {
+        ccn = 0;
+    }
+    if (ccn >= 3) {
+        @try {
+            strokePt = [a GetColor];
+        } @catch (__unused NSException *e) {
+            strokePt = nil;
+        }
+    }
+    if (strokePt == nil) {
+        strokePt = BauhubColorPtFromOpaqueArgb(sBauhubAreaStrokeArgb);
+    }
+    double lw = kBauhubAreaStrokeWidth;
+    @try {
+        PTBorderStyle *bs = [a GetBorderStyle];
+        if (bs != nil && [bs GetWidth] > 0.1) {
+            lw = [bs GetWidth];
+        }
+    } @catch (__unused NSException *e) {
+    }
+    @try {
+        [m SetOpacity:1.0];
+    } @catch (__unused NSException *e) {
+    }
+    BOOL ok = BauhubSetTranslucentAreaMarkupAppearance(
+        a, doc, fillPt, strokePt, (double)kBauhubAreaMarkupOpacity, lw, 0.5);
+    if (ok) {
+        BauhubZeroSquarePolygonBorderForCustomAppearance(a);
+    } else {
+        // Fallback (no custom AP): keep IC at the OPAQUE design colour so the exported XFDF
+        // matches web/iOS expectations across platforms (web/iOS apply opacity="0.3" themselves
+        // and read IC at face value). Lower CA to 0.3 so the default Square/Polygon render also
+        // looks translucent. Writing a white-blended IC here used to corrupt the cross-platform
+        // colour — every Android edit + iOS fallback would push the saved fill one step lighter.
+        NSUInteger fillArgb = BauhubRgbArgbFromColorPt(fillPt);
+        @try {
+            [m SetInteriorColor:BauhubColorPtFromOpaqueArgb(fillArgb) CompNum:3];
+            [m SetOpacity:(double)kBauhubAreaMarkupOpacity];
+            [a RefreshAppearance];
+        } @catch (__unused NSException *e) {
+        }
+    }
+}
+
+void PTBauhubReapplyTranslucentAreaMarkupAppearanceForAnnot(PTAnnot *annot, PTPDFDoc *doc) {
+    BauhubReapplyTranslucentAreaMarkupAppearanceForAnnotImpl(annot, doc);
+}
+
+BOOL PTBauhubAnnotIsAreaMarkup(PTAnnot *annot) {
+    return BauhubAnnotShouldReceiveAreaPin(annot);
+}
+
 /// After XFDF merge / `refreshAnnotAppearances`, default AP is opaque — rebuild translucent Bauhub fill + thin stroke.
 static void BauhubRestoreTranslucentAreaMarkupAppearancesInDoc(PTPDFDoc *doc) {
     if (!doc) {
@@ -5919,73 +6145,7 @@ static void BauhubRestoreTranslucentAreaMarkupAppearancesInDoc(PTPDFDoc *doc) {
         PTPage *page = [doc GetPage:p];
         int n = (int)[page GetNumAnnots];
         for (int i = 0; i < n; i++) {
-            PTAnnot *a = [page GetAnnot:i];
-            if (!BauhubAnnotShouldReceiveAreaPin(a)) {
-                continue;
-            }
-            PTMarkup *m = [[PTMarkup alloc] initWithAnn:a];
-            if (![m IsValid]) {
-                continue;
-            }
-            int icn = 0;
-            @try {
-                icn = [m GetInteriorColorCompNum];
-            } @catch (__unused NSException *e) {
-                icn = 0;
-            }
-            PTColorPt *fillPt = nil;
-            if (icn >= 3) {
-                @try {
-                    fillPt = [m GetInteriorColor];
-                } @catch (__unused NSException *e) {
-                    fillPt = nil;
-                }
-            }
-            if (fillPt == nil) {
-                fillPt = BauhubColorPtFromOpaqueArgb(sBauhubAreaFillArgb);
-            }
-            PTColorPt *strokePt = nil;
-            int ccn = 0;
-            @try {
-                ccn = [a GetColorCompNum];
-            } @catch (__unused NSException *e) {
-                ccn = 0;
-            }
-            if (ccn >= 3) {
-                @try {
-                    strokePt = [a GetColor];
-                } @catch (__unused NSException *e) {
-                    strokePt = nil;
-                }
-            }
-            if (strokePt == nil) {
-                strokePt = BauhubColorPtFromOpaqueArgb(sBauhubAreaStrokeArgb);
-            }
-            double lw = kBauhubAreaStrokeWidth;
-            @try {
-                PTBorderStyle *bs = [a GetBorderStyle];
-                if (bs != nil && [bs GetWidth] > 0.1) {
-                    lw = [bs GetWidth];
-                }
-            } @catch (__unused NSException *e) {
-            }
-            @try {
-                [m SetOpacity:1.0];
-            } @catch (__unused NSException *e) {
-            }
-            BOOL ok = BauhubSetTranslucentAreaMarkupAppearance(
-                a, doc, fillPt, strokePt, (double)kBauhubAreaMarkupOpacity, lw, 0.5);
-            if (ok) {
-                BauhubZeroSquarePolygonBorderForCustomAppearance(a);
-            } else {
-                NSUInteger fillArgb = BauhubRgbArgbFromColorPt(fillPt);
-                PTColorPt *softFill = BauhubFillBlendedTowardWhite(fillArgb, (double)kBauhubAreaMarkupOpacity);
-                @try {
-                    [m SetInteriorColor:softFill CompNum:3];
-                    [a RefreshAppearance];
-                } @catch (__unused NSException *e) {
-                }
-            }
+            BauhubReapplyTranslucentAreaMarkupAppearanceForAnnotImpl([page GetAnnot:i], doc);
         }
     }
 }
@@ -6121,9 +6281,13 @@ static void BauhubScheduleReapplyBauhubAreaMarkupStyle(PTPDFViewCtrl *pdfViewCtr
     if (usedCustomAppearance) {
         BauhubZeroSquarePolygonBorderForCustomAppearance(annot);
     } else {
-        PTColorPt *softFill = BauhubFillBlendedTowardWhite(sBauhubAreaFillArgb, (double)kBauhubAreaMarkupOpacity);
-        [markup SetInteriorColor:softFill CompNum:3];
+        // Fallback: keep IC at the OPAQUE brand colour (web/iOS read IC at face value and apply
+        // opacity="0.3" themselves). Lower CA to 0.3 so the default Square/Polygon render also
+        // looks translucent on iOS. A previous version wrote a white-blended IC here, which
+        // shipped the lighter pastel into the saved XFDF and broke cross-platform colour parity.
+        [markup SetInteriorColor:fill CompNum:3];
         @try {
+            [markup SetOpacity:(double)kBauhubAreaMarkupOpacity];
             [annot RefreshAppearance];
         } @catch (__unused NSException *e) {
         }
@@ -6134,7 +6298,357 @@ static void BauhubScheduleReapplyBauhubAreaMarkupStyle(PTPDFViewCtrl *pdfViewCtr
 
 #pragma mark - BauhubPolygonMarkupTool
 
+/**
+ * Bauhub-internal extension declaring the private touch-buffer surface of {@link PTPolylineCreate}.
+ *
+ * Apryse's `Tools.framework` keeps in-progress polygon geometry across **two** parallel ivar arrays:
+ *
+ *   - {@code _touchPoints}     — screen-space taps. Drives {@code drawRect:} / rubber-band rendering.
+ *                                The public {@code vertices} property is a getter alias for this.
+ *   - {@code _pageTouchPoints} — page-space taps. **{@code -commitAnnotation} reads from this one**
+ *                                to build the saved polygon vertices.
+ *
+ * {@code addTouchPoint:} / {@code removeLastTouchPoint} mutate BOTH arrays in lockstep, but the
+ * public {@code -setVertices:} (and any direct manipulation of {@code _touchPoints}) only touches
+ * the screen-side array. An older Bauhub undo fallback used {@code setVertices: subarray} to drop
+ * a vertex — visibly the rubber-band shrank, but {@code commitAnnotation} still replayed the
+ * un-done point because the page-side buffer was never trimmed.
+ *
+ * Selectors below are present in `Tools.framework` (verified against
+ * {@code _OBJC_$_INSTANCE_METHODS_PTPolylineCreate} in the binary symbol table) but are omitted
+ * from the public headers.
+ */
+@interface PTPolylineCreate (BauhubPolygonTouchEditing)
+- (void)removeLastTouchPoint;
+- (nullable NSArray<NSValue *> *)touchPoints;
+- (nullable NSArray<NSValue *> *)pageTouchPoints;
+@end
+
+/// Invokes `-addTouchPoint:` whether the ABI uses `CGPoint` or an `NSValue *` wrapper (SDK-build dependent).
+static void BauhubPolylineInvokeAddTouchPoint(PTPolylineCreate *poly, NSValue *screenPointValue)
+{
+    if (poly == nil || screenPointValue == nil) {
+        return;
+    }
+    SEL sel = @selector(addTouchPoint:);
+    if (![poly respondsToSelector:sel]) {
+        return;
+    }
+    NSMethodSignature *sig = [poly methodSignatureForSelector:sel];
+    if (sig == nil || sig.numberOfArguments < 3) {
+        return;
+    }
+    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+    [inv setSelector:sel];
+    const char *enc = [sig getArgumentTypeAtIndex:2];
+    if (strcmp(enc, "@") == 0) {
+        NSValue *__unsafe_unretained boxed = screenPointValue;
+        [inv setArgument:&boxed atIndex:2];
+    } else if (enc[0] == '{') {
+        CGPoint p = [screenPointValue CGPointValue];
+        [inv setArgument:&p atIndex:2];
+    } else {
+        return;
+    }
+    [inv invokeWithTarget:poly];
+}
+
+static void BauhubPolylineInvokeRemoveLastTouchPoint(PTPolylineCreate *poly)
+{
+    if (poly == nil || ![poly respondsToSelector:@selector(removeLastTouchPoint)]) {
+        return;
+    }
+    void (*imp)(id, SEL) = (void (*)(id, SEL))[poly methodForSelector:@selector(removeLastTouchPoint)];
+    imp(poly, @selector(removeLastTouchPoint));
+}
+
+/// Committed-tap count — backs the **Valmis ≥3 gate** and the dedupe baseline. Reads
+/// {@code _touchPoints} (screen space; same array {@code -vertices} aliases). After a clean tap
+/// cycle this matches {@code _pageTouchPoints.count} which is what {@code -commitAnnotation} consumes.
+/// Mirrors Android's {@code mPagePoints.size()} — no live cursor / preview entry.
+static NSUInteger BauhubPolylineCommittedPointCount(PTPolylineCreate *poly)
+{
+    if (poly == nil) {
+        return 0;
+    }
+    @try {
+        NSArray<NSValue *> *t = [poly touchPoints];
+        if (t != nil) {
+            return t.count;
+        }
+    } @catch (__unused NSException *e) {
+    }
+    return poly.vertices.count;
+}
+
+/// Largest of any internal touch buffer — used by dedupe / cancel / undo guards as a "is there
+/// anything still hanging around?" probe. Picks the max so a stuck {@code _pageTouchPoints} can't
+/// hide an inflated screen-side array (or vice versa) from the trim loop.
+static NSUInteger BauhubPolylineEffectivePointCount(PTPolylineCreate *poly)
+{
+    if (poly == nil) {
+        return 0;
+    }
+    NSUInteger v = poly.vertices.count;
+    NSUInteger t = 0;
+    NSUInteger p = 0;
+    @try { t = [[poly touchPoints] count]; } @catch (__unused NSException *e) {}
+    @try { p = [[poly pageTouchPoints] count]; } @catch (__unused NSException *e) {}
+    return MAX(MAX(v, t), p);
+}
+
+/// Trim BOTH the screen-space {@code _touchPoints} and the page-space {@code _pageTouchPoints}
+/// buffers down to {@code target} entries. {@code -commitAnnotation} reads {@code _pageTouchPoints}
+/// exclusively, so any path that mutates only the screen array (or only {@code -vertices}) leaves
+/// commit replaying the pre-mutation polygon — the exact bug behind "Valmis re-creates undone points".
+///
+/// Uses {@code -mutableArrayValueForKey:} so KVO observers (toolbar emit + the SDK's own rubber-band
+/// invalidation) fire as the arrays shrink. Wrapped in {@code @try} per array — older Tools.framework
+/// builds may not expose one of the keys via KVC.
+static void BauhubPolylineTrimTouchPointsTo(PTPolylineCreate *poly, NSUInteger target)
+{
+    if (poly == nil) {
+        return;
+    }
+    @try {
+        NSMutableArray *t = [poly mutableArrayValueForKey:@"touchPoints"];
+        while (t.count > target) {
+            [t removeLastObject];
+        }
+    } @catch (__unused NSException *e) {
+    }
+    @try {
+        NSMutableArray *p = [poly mutableArrayValueForKey:@"pageTouchPoints"];
+        while (p.count > target) {
+            [p removeLastObject];
+        }
+    } @catch (__unused NSException *e) {
+    }
+}
+
+/// Append {@code screenPoint} to BOTH internal touch buffers — used as a redo fallback when
+/// {@code -addTouchPoint:} did not grow the arrays (rare; some SDK builds short-circuit on
+/// rapid programmatic calls). Converts screen → page via the live PVC so {@code -commitAnnotation}
+/// later sees the restored vertex in the correct page-space coordinates.
+static void BauhubPolylinePushTouchPoint(PTPolylineCreate *poly, NSValue *screenPoint, PTPDFViewCtrl *pvc)
+{
+    if (poly == nil || screenPoint == nil) {
+        return;
+    }
+    @try {
+        NSMutableArray *t = [poly mutableArrayValueForKey:@"touchPoints"];
+        [t addObject:screenPoint];
+    } @catch (__unused NSException *e) {
+    }
+    if (pvc == nil) {
+        return;
+    }
+    @try {
+        if (![pvc respondsToSelector:@selector(ConvScreenPtToPagePt:page_num:)]) {
+            return;
+        }
+        CGPoint scr = [screenPoint CGPointValue];
+        PTPDFPoint *scrPt = [[PTPDFPoint alloc] initWithPx:scr.x py:scr.y];
+        PTPDFPoint *pgPt = [pvc ConvScreenPtToPagePt:scrPt page_num:(int)poly.pageNumber];
+        if (pgPt == nil) {
+            return;
+        }
+        NSValue *pageValue = [NSValue valueWithCGPoint:CGPointMake([pgPt getX], [pgPt getY])];
+        NSMutableArray *p = [poly mutableArrayValueForKey:@"pageTouchPoints"];
+        [p addObject:pageValue];
+    } @catch (__unused NSException *e) {
+    }
+}
+
+/**
+ * Screen-space NSValue for {@code addTouchPoint:} — push onto {@code bauhubRedoStack} before
+ * {@code removeLastTouchPoint}. Prefer PDFNet's {@code touchPoints} tail; otherwise convert the
+ * last {@code vertices} entry from page → screen via {@code ConvPagePtToScreenPt:page_num:}.
+ */
+static NSValue *BauhubPolylineRedoScreenPointForUndo(PTPolylineCreate *poly, PTPDFViewCtrl *pvc)
+{
+    if (poly == nil) {
+        return nil;
+    }
+    @try {
+        id tp = [poly valueForKey:@"touchPoints"];
+        if ([tp respondsToSelector:@selector(count)] && [tp count] > 0) {
+            id last = [tp lastObject];
+            if ([last isKindOfClass:[NSValue class]]) {
+                return (NSValue *)last;
+            }
+        }
+    } @catch (__unused NSException *e) {
+    }
+    NSArray<NSValue *> *verts = poly.vertices;
+    NSValue *lastV = verts.lastObject;
+    if (lastV == nil || pvc == nil) {
+        return nil;
+    }
+    CGPoint pageCg = [lastV CGPointValue];
+    PTPDFPoint *ppt = [[PTPDFPoint alloc] initWithPx:pageCg.x py:pageCg.y];
+    if (![pvc respondsToSelector:@selector(ConvPagePtToScreenPt:page_num:)]) {
+        return nil;
+    }
+    PTPDFPoint *scr = [pvc ConvPagePtToScreenPt:ppt page_num:(int)poly.pageNumber];
+    if (scr == nil) {
+        return nil;
+    }
+    return [NSValue valueWithCGPoint:CGPointMake([scr getX], [scr getY])];
+}
+
+/// Best-effort abandon of PDFNet's in-progress shape **before** switching tools (Android calls
+/// AdvancedShapeCreate.clear()). iOS has no single stable public API — probe common compound-create
+/// selectors so toolManager.changeTool does not finalize a partial polygon onto the page.
+static void BauhubPolygonInvokeSdkAbortCreationIfAvailable(BauhubPolygonMarkupTool *tool)
+{
+    if (tool == nil) {
+        return;
+    }
+    NSArray<NSString *> *names = @[
+        @"cancelInteractive",
+        @"cancelAnnotationCreation",
+        @"cancelCreation",
+        @"cancel",
+        @"clear",
+        @"reset",
+    ];
+    for (NSString *name in names) {
+        SEL sel = NSSelectorFromString(name);
+        if ([(id)tool respondsToSelector:sel]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            [(id)tool performSelector:sel];
+#pragma clang diagnostic pop
+            return;
+        }
+    }
+}
+
+// Static singletons backing the Bauhub polygon-state broadcast channel.
+static FlutterEventSink gBauhubPolygonStateEventSink = nil;
+static __weak BauhubPolygonMarkupTool *gBauhubPolygonActiveTool = nil;
+/** Fallback when {@code toolManager.tool} is not our subclass (gesture/tool swap edge cases). Cleared in {@code -dealloc}. */
+static BauhubPolygonMarkupTool *gBauhubPolygonStrongActiveTool = nil;
+
+@interface BauhubPolygonMarkupTool ()
++ (BauhubPolygonMarkupTool *)bauhub_resolveActiveTool:(nullable PTToolManager *)toolManager;
+/**
+ * Effective polyline point count sampled in {@code onTouchesBegan} **after** {@code super} — stable
+ * baseline for the finger-down cycle. Per-gesture dedupe trims duplicate PDFNet vertices using this
+ * baseline plus one as the cap (see {@code bauhubFlushVertexDedupe}).
+ */
+@property (nonatomic, assign) NSUInteger bauhubTapCycleBaseline;
+/**
+ * Bauhub-managed redo stack. PTPolylineCreate / PTPolygonCreate don't track "undone" vertices
+ * the way Android's AdvancedShapeCreate does; we keep our own LIFO stack so the Flutter toolbar
+ * can expose Redo while the polygon is still in-progress. Cleared whenever the user adds a new
+ * vertex via a tap (pdfViewCtrl:handleTap:) — matching PDFTron's undo semantics.
+ */
+@property (nonatomic, strong) NSMutableArray<NSValue *> *bauhubRedoStack;
+/** Whether KVO observation on {@code vertices} has been attached. */
+@property (nonatomic, assign) BOOL bauhubObservingVertices;
+@end
+
 @implementation BauhubPolygonMarkupTool
+
+- (instancetype)initWithPDFViewCtrl:(PTPDFViewCtrl *)pdfViewCtrl
+{
+    self = [super initWithPDFViewCtrl:pdfViewCtrl];
+    if (self) {
+        _bauhubRedoStack = [NSMutableArray array];
+        gBauhubPolygonStrongActiveTool = self;
+        gBauhubPolygonActiveTool = self;
+        [self addObserver:self forKeyPath:@"vertices" options:0 context:NULL];
+        _bauhubObservingVertices = YES;
+        // Push an "active, 0 vertices" snapshot so Dart knows the tool is live and can keep
+        // the Point/Area pill visible until the first tap.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [BauhubPolygonMarkupTool emitStateSnapshotFromTool:self];
+        });
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    if (_bauhubObservingVertices) {
+        @try {
+            [self removeObserver:self forKeyPath:@"vertices"];
+        } @catch (NSException * __unused _) {
+            // Observer may already have been removed; ignore.
+        }
+        _bauhubObservingVertices = NO;
+    }
+    if (gBauhubPolygonStrongActiveTool == self) {
+        gBauhubPolygonStrongActiveTool = nil;
+    }
+    if (gBauhubPolygonActiveTool == self) {
+        gBauhubPolygonActiveTool = nil;
+        // Tool torn down — collapse the active-polygon toolbar.
+        [BauhubPolygonMarkupTool emitDetachedStateSnapshot];
+    }
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary<NSKeyValueChangeKey,id> *)change
+                       context:(void *)context
+{
+    if (object == self && [keyPath isEqualToString:@"vertices"]) {
+        [BauhubPolygonMarkupTool emitStateSnapshotFromTool:self];
+    }
+}
+
+// PDFNet often delivers the same tap via `onTouchesEnded:` and `handleTap:` — two vertex inserts.
+// We trim to at most one net vertex per finger-down cycle (baseline captured in `onTouchesBegan`).
+// Runs **synchronously after each callback** so both handlers run in order **without**
+// `performSelector:afterDelay:0`, which queued flushes that `cancelPreviousPerformRequests` could drop
+// across consecutive taps — repro: second vertex sometimes disappeared or a stale flush ran late.
+
+- (BOOL)pdfViewCtrl:(PTPDFViewCtrl *)pdfViewCtrl onTouchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+    BOOL handled = [super pdfViewCtrl:pdfViewCtrl onTouchesBegan:touches withEvent:event];
+    // Baseline against committed taps — vertices.count is N+1 (live cursor) and would let dedupe
+    // accept an extra vertex per tap. touchPoints.count == Android mPagePoints.size().
+    self.bauhubTapCycleBaseline = BauhubPolylineCommittedPointCount((PTPolylineCreate *)self);
+    return handled;
+}
+
+- (void)bauhubFlushVertexDedupe
+{
+    NSUInteger baseline = self.bauhubTapCycleBaseline;
+    NSUInteger cap = baseline + 1;
+    NSUInteger safety = 0;
+    while (BauhubPolylineCommittedPointCount((PTPolylineCreate *)self) > cap && safety < 32) {
+        BauhubPolylineInvokeRemoveLastTouchPoint((PTPolylineCreate *)self);
+        safety++;
+    }
+    // `removeLastTouchPoint` should shrink BOTH `_touchPoints` and `_pageTouchPoints`, but a few
+    // Tools.framework builds skip the page-side trim when called from inside the touch handler —
+    // commit then replays the duplicate. Hard-trim both ivars so the gate / commit / rendering all
+    // agree at the end of the tap cycle.
+    BauhubPolylineTrimTouchPointsTo((PTPolylineCreate *)self, cap);
+    NSUInteger finalCount = BauhubPolylineCommittedPointCount((PTPolylineCreate *)self);
+    if (finalCount > baseline) {
+        [self.bauhubRedoStack removeAllObjects];
+    }
+    [BauhubPolygonMarkupTool emitStateSnapshotFromTool:self];
+}
+
+- (BOOL)pdfViewCtrl:(PTPDFViewCtrl *)pdfViewCtrl onTouchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+    BOOL handled = [super pdfViewCtrl:pdfViewCtrl onTouchesEnded:touches withEvent:event];
+    [self bauhubFlushVertexDedupe];
+    return handled;
+}
+
+- (BOOL)pdfViewCtrl:(PTPDFViewCtrl *)pdfViewCtrl handleTap:(UITapGestureRecognizer *)gestureRecognizer
+{
+    BOOL handled = [super pdfViewCtrl:pdfViewCtrl handleTap:gestureRecognizer];
+    [self bauhubFlushVertexDedupe];
+    return handled;
+}
 
 - (double)setupContext:(CGContextRef)ctx {
     (void)[super setupContext:ctx];
@@ -6180,7 +6694,221 @@ static void BauhubScheduleReapplyBauhubAreaMarkupStyle(PTPDFViewCtrl *pdfViewCtr
         BauhubScheduleAreaPinStamp(pvc, (int)pageNumber, annotation);
         BauhubScheduleReapplyBauhubAreaMarkupStyle(pvc, annotation, (int)pageNumber, self.bauhubSubject);
     }
+    // Commit clears the vertex buffer; collapse the polygon-active bar in the Flutter UI.
+    [BauhubPolygonMarkupTool emitDetachedStateSnapshot];
     [super annotationAdded:annotation onPageNumber:pageNumber];
+}
+
+#pragma mark - Bauhub polygon state broadcast
+
++ (void)setStateEventSink:(nullable FlutterEventSink)sink
+{
+    gBauhubPolygonStateEventSink = sink;
+}
+
++ (void)bauhub_polygonRunOnMainSync:(void (NS_NOESCAPE ^)(void))block
+{
+    if ([NSThread isMainThread]) {
+        block();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), block);
+    }
+}
+
+/// The live polygon tool — `toolManager.tool` is authoritative when it is still our subclass.
+/// `gBauhubPolygonStrongActiveTool` survives cases where `toolManager.tool` temporarily does not match
+/// (weak `gBauhubPolygonActiveTool` could also be nil while the tool view is still live).
++ (BauhubPolygonMarkupTool *)bauhub_resolveActiveTool:(nullable PTToolManager *)toolManager
+{
+    if (toolManager != nil) {
+        PTTool *currentTool = toolManager.tool;
+        if ([currentTool isKindOfClass:[BauhubPolygonMarkupTool class]]) {
+            return (BauhubPolygonMarkupTool *)currentTool;
+        }
+    }
+    BauhubPolygonMarkupTool *strong = gBauhubPolygonStrongActiveTool;
+    if (strong != nil && (toolManager == nil || strong.toolManager == toolManager)) {
+        return strong;
+    }
+    return gBauhubPolygonActiveTool;
+}
+
++ (BOOL)cancelActiveShapeWithToolManager:(nullable PTToolManager *)toolManager
+{
+    __block BOOL ok = NO;
+    [self bauhub_polygonRunOnMainSync:^{
+        BauhubPolygonMarkupTool *active = [self bauhub_resolveActiveTool:toolManager];
+        if (!active) {
+            return;
+        }
+        BauhubPolygonInvokeSdkAbortCreationIfAvailable(active);
+        [active.bauhubRedoStack removeAllObjects];
+        // Drain BOTH internal touch buffers via `removeLastTouchPoint` first (keeps SDK-internal
+        // state machine consistent), then hard-zero them via the KVC mutable proxies. Setting
+        // `vertices = @[]` alone left `_pageTouchPoints` populated and a stale tool swap could
+        // commit the partial polygon onto the page on the next gesture cycle.
+        NSUInteger safety = 0;
+        while (BauhubPolylineEffectivePointCount((PTPolylineCreate *)active) > 0 && safety < 512) {
+            BauhubPolylineInvokeRemoveLastTouchPoint((PTPolylineCreate *)active);
+            safety++;
+        }
+        BauhubPolylineTrimTouchPointsTo((PTPolylineCreate *)active, 0);
+        [BauhubPolygonMarkupTool refreshInProgressShapeOnTool:active];
+        PTToolManager *tm = toolManager ?: active.toolManager;
+        if (tm) {
+            [tm changeTool:[PTPanTool class]];
+        }
+        [BauhubPolygonMarkupTool emitDetachedStateSnapshot];
+        ok = YES;
+    }];
+    return ok;
+}
+
++ (BOOL)cancelActiveShape
+{
+    return [self cancelActiveShapeWithToolManager:nil];
+}
+
++ (BOOL)undoActiveShapePointWithToolManager:(nullable PTToolManager *)toolManager
+{
+    __block BOOL ok = NO;
+    [self bauhub_polygonRunOnMainSync:^{
+        BauhubPolygonMarkupTool *active = [self bauhub_resolveActiveTool:toolManager];
+        if (!active) {
+            return;
+        }
+        NSUInteger countBefore = BauhubPolylineCommittedPointCount((PTPolylineCreate *)active);
+        if (countBefore == 0) {
+            return;
+        }
+        NSValue *redoPoint = BauhubPolylineRedoScreenPointForUndo((PTPolylineCreate *)active, active.pdfViewCtrl);
+        if (redoPoint == nil) {
+            return;
+        }
+        [active.bauhubRedoStack addObject:redoPoint];
+        BauhubPolylineInvokeRemoveLastTouchPoint((PTPolylineCreate *)active);
+        // Hard-trim BOTH `_touchPoints` and `_pageTouchPoints` to the new target size so commit
+        // can't replay an un-done vertex. Old code only set `vertices` (== screen-side), leaving
+        // the page-side committed buffer stale → "Valmis recreates undone points" bug.
+        BauhubPolylineTrimTouchPointsTo((PTPolylineCreate *)active, countBefore - 1);
+        [BauhubPolygonMarkupTool refreshInProgressShapeOnTool:active];
+        ok = YES;
+    }];
+    return ok;
+}
+
++ (BOOL)undoActiveShapePoint
+{
+    return [self undoActiveShapePointWithToolManager:nil];
+}
+
++ (BOOL)redoActiveShapePointWithToolManager:(nullable PTToolManager *)toolManager
+{
+    __block BOOL ok = NO;
+    [self bauhub_polygonRunOnMainSync:^{
+        BauhubPolygonMarkupTool *active = [self bauhub_resolveActiveTool:toolManager];
+        if (!active || active.bauhubRedoStack.count == 0) {
+            return;
+        }
+        NSValue *restored = active.bauhubRedoStack.lastObject;
+        [active.bauhubRedoStack removeLastObject];
+        NSUInteger countBefore = BauhubPolylineCommittedPointCount((PTPolylineCreate *)active);
+        BauhubPolylineInvokeAddTouchPoint((PTPolylineCreate *)active, restored);
+        // SDK's `-addTouchPoint:` should grow BOTH `_touchPoints` and `_pageTouchPoints`. If the
+        // count didn't move, push to both buffers manually — otherwise commit would skip the
+        // restored vertex and the rubber-band would visually lag behind the redo stack.
+        NSUInteger countAfter = BauhubPolylineCommittedPointCount((PTPolylineCreate *)active);
+        if (countAfter <= countBefore) {
+            BauhubPolylinePushTouchPoint((PTPolylineCreate *)active, restored, active.pdfViewCtrl);
+        }
+        [BauhubPolygonMarkupTool refreshInProgressShapeOnTool:active fullPDFUpdate:NO];
+        ok = YES;
+    }];
+    return ok;
+}
+
++ (BOOL)redoActiveShapePoint
+{
+    return [self redoActiveShapePointWithToolManager:nil];
+}
+
+/**
+ * Forces the rubber-band rendering to redraw after a programmatic mutation of {@code vertices}
+ * and broadcasts a fresh state snapshot to Dart.
+ *
+ * Why this is needed: PTPolylineCreate's in-progress polygon is rendered by the tool view's
+ * own {@code -drawRect:}, plus an overlay maintained by the parent {@code PTPDFViewCtrl}. When
+ * the user taps to add a vertex, PDFTron internally calls {@code setNeedsDisplay} on both, but
+ * a third-party setter assign (the path Bauhub takes for undo/redo) doesn't trip those refresh
+ * hooks — the data changes but the canvas keeps showing the previous polyline. Explicitly
+ * marking both the tool and the underlying PDF view as dirty puts the next runloop pass in
+ * charge of redrawing them.
+ *
+ * KVO on {@code vertices} can also be unreliable here (the SDK occasionally bypasses the
+ * property setter), so programmatic undo/redo emits explicitly after refresh.
+ */
++ (void)refreshInProgressShapeOnTool:(BauhubPolygonMarkupTool *)tool
+{
+    [self refreshInProgressShapeOnTool:tool fullPDFUpdate:NO];
+}
+
++ (void)refreshInProgressShapeOnTool:(BauhubPolygonMarkupTool *)tool fullPDFUpdate:(BOOL)fullPDFUpdate
+{
+    if (tool == nil) return;
+    [tool setNeedsDisplay];
+    PTPDFViewCtrl *pvc = tool.pdfViewCtrl;
+    if (pvc != nil) {
+        [pvc setNeedsDisplay];
+        // Full `Update:YES` caused visible flicker on redo; `setNeedsDisplay` + `Update:NO` matches
+        // undo and is enough once touch buffers and vertices are consistent.
+        [pvc Update:fullPDFUpdate];
+    }
+    [BauhubPolygonMarkupTool emitStateSnapshotFromTool:tool];
+}
+
++ (void)emitStateSnapshotFromTool:(BauhubPolygonMarkupTool *)tool
+{
+    FlutterEventSink sink = gBauhubPolygonStateEventSink;
+    if (sink == nil || tool == nil) return;
+    // Toolbar gates Valmis on `vertexCount >= 3` — must match Android's `mPagePoints.size()`.
+    // PTPolylineCreate's `vertices` array carries an extra trailing live-cursor entry that
+    // would push the count to N+1 after N taps and unlock Valmis at 2 taps.
+    NSUInteger vertexCount = BauhubPolylineCommittedPointCount((PTPolylineCreate *)tool);
+    // Use explicit @YES/@NO instead of @(boolExpression). The C expression `count > 0`
+    // evaluates to int, and `@(int)` boxes as `NSNumber numberWithInt:` — Flutter's standard
+    // codec then delivers it to Dart as `int` (0 / 1), and `map['canUndo'] == true` evaluates
+    // to false (Dart: 1 == true is false). Forcing __NSCFBoolean ensures Dart sees a bool.
+    NSDictionary *payload = @{
+        @"active": @YES,
+        @"vertexCount": @(vertexCount),
+        @"canUndo": (vertexCount > 0) ? @YES : @NO,
+        @"canRedo": (tool.bauhubRedoStack.count > 0) ? @YES : @NO,
+    };
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            sink(payload);
+        } @catch (NSException * __unused _) {
+            // Sink can be torn down between the dispatch and delivery; tolerate it silently.
+        }
+    });
+}
+
++ (void)emitDetachedStateSnapshot
+{
+    FlutterEventSink sink = gBauhubPolygonStateEventSink;
+    if (sink == nil) return;
+    NSDictionary *payload = @{
+        @"active": @NO,
+        @"vertexCount": @0,
+        @"canUndo": @NO,
+        @"canRedo": @NO,
+    };
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            sink(payload);
+        } @catch (NSException * __unused _) {
+        }
+    });
 }
 
 @end

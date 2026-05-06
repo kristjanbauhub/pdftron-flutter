@@ -446,6 +446,27 @@ static void PT_installResizingToolbarLayoutCrashGuard(void)
 
 - (void)toolManager:(PTToolManager *)toolManager annotationModified:(PTAnnot *)annotation onPageNumber:(unsigned long)pageNumber
 {
+    // Reapply the Bauhub translucent custom appearance immediately after a resize/move so
+    // the area never visibly flashes solid before the next reapply pass. PDFTron iOS rebuilds
+    // the AP from default style on edit (refreshAppearance), which collapses our translucent
+    // fill into a flat full-alpha colour — visible to the user as "fill becomes solid after
+    // editing". Restoring the AP here keeps the appearance pixel-identical pre/post edit.
+    // Skipped when the annot isn't a Bauhub area (any other annotation type takes the standard
+    // PDFTron path with no extra work).
+    if (PTBauhubAnnotIsAreaMarkup(annotation)) {
+        NSError *reapplyError = nil;
+        [self.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
+            PTBauhubReapplyTranslucentAreaMarkupAppearanceForAnnot(annotation, doc);
+        } error:&reapplyError];
+        if (reapplyError) {
+            NSLog(@"BauhubReapply (annotationModified): %@", reapplyError.localizedDescription);
+        }
+        @try {
+            [self.pdfViewCtrl UpdateWithAnnot:annotation page_num:(int)pageNumber];
+        } @catch (__unused NSException *e) {
+        }
+    }
+
     NSString* annotationsWithActionString = [self generateAnnotationsWithActionString:@[annotation] onPageNumber:pageNumber action:PTModifyActionKey];
     if (annotationsWithActionString) {
         [self.plugin documentController:self annotationsChangedWithActionString:annotationsWithActionString];

@@ -43,6 +43,7 @@ import static com.pdftron.pdftronflutter.helpers.PluginUtils.EVENT_PAGE_CHANGED;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.EVENT_PAGE_MOVED;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.EVENT_ANNOTATION_TOOLBAR_ITEM_PRESSED;
 import static com.pdftron.pdftronflutter.helpers.PluginUtils.EVENT_ZOOM_CHANGED;
+import static com.pdftron.pdftronflutter.helpers.PluginUtils.EVENT_BAUHUB_POLYGON_STATE;
 
 public class PluginMethodCallHandler implements MethodCallHandler {
 
@@ -271,6 +272,26 @@ public class PluginMethodCallHandler implements MethodCallHandler {
             @Override
             public void onCancel(Object arguments) {
                 FlutterDocumentActivity.setAppBarButtonPressedEventEmitter(null);
+            }
+        });
+
+        // Bauhub polygon in-progress state. Because the state is pushed from
+        // {@code BauhubPolygonMarkupTool} (which is Bauhub-specific and construction is not tied
+        // to the widget/fullscreen distinction), the sink is stored as a static on the tool
+        // class itself rather than on {@code FlutterDocumentActivity} / {@code DocumentView}.
+        final EventChannel bauhubPolygonStateEventChannel =
+                new EventChannel(messenger, EVENT_BAUHUB_POLYGON_STATE);
+        bauhubPolygonStateEventChannel.setStreamHandler(new EventChannel.StreamHandler() {
+            @Override
+            public void onListen(Object arguments, EventChannel.EventSink emitter) {
+                com.pdftron.pdftronflutter.bauhub.BauhubPolygonMarkupTool
+                        .setStateEventSink(emitter);
+            }
+
+            @Override
+            public void onCancel(Object arguments) {
+                com.pdftron.pdftronflutter.bauhub.BauhubPolygonMarkupTool
+                        .setStateEventSink(null);
             }
         });
     }

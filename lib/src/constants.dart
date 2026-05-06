@@ -43,6 +43,9 @@ class Functions {
   static const getDocumentPath = "getDocumentPath";
   static const setToolMode = "setToolMode";
   static const setBauhubAreaMarkupColors = "setBauhubAreaMarkupColors";
+  static const bauhubCancelActiveShape = "bauhubCancelActiveShape";
+  static const bauhubUndoActiveShapePoint = "bauhubUndoActiveShapePoint";
+  static const bauhubRedoActiveShapePoint = "bauhubRedoActiveShapePoint";
   static const setValuesForFields = "setValuesForFields";
   static const setFlagForFields = "setFlagForFields";
   static const setLeadingNavButtonIcon = "setLeadingNavButtonIcon";

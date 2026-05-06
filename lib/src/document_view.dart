@@ -312,6 +312,28 @@ class DocumentViewController {
     return _channel.invokeMethod(Functions.commitTool);
   }
 
+  /// Discards the in-progress Bauhub polygon annotation (clears all vertices + the Bauhub-owned
+  /// redo stack) and switches the active tool back to pan. This is the counterpart to
+  /// [commitTool] and is wired to the Cancel button on the polygon-active toolbar (Figma
+  /// 4842:13857). Returns true when a Bauhub polygon was cancelled, false otherwise — `undo()`
+  /// would operate on the document-level undo manager, which is NOT what the Cancel button
+  /// should do.
+  Future<bool?> bauhubCancelActiveShape() {
+    return _channel.invokeMethod(Functions.bauhubCancelActiveShape);
+  }
+
+  /// Pops the most recently placed vertex off the in-progress Bauhub polygon, if any.
+  /// Returns true if a vertex was undone.
+  Future<bool?> bauhubUndoActiveShapePoint() {
+    return _channel.invokeMethod(Functions.bauhubUndoActiveShapePoint);
+  }
+
+  /// Re-applies the most recently undone vertex to the in-progress Bauhub polygon, if any.
+  /// Returns true if a vertex was redone.
+  Future<bool?> bauhubRedoActiveShapePoint() {
+    return _channel.invokeMethod(Functions.bauhubRedoActiveShapePoint);
+  }
+
   Future<int?> getPageCount() {
     return _channel.invokeMethod(Functions.getPageCount);
   }

@@ -42,8 +42,20 @@ public class BauhubTaskTool extends Stamper {
 
     public BauhubTaskTool(@NonNull PDFViewCtrl ctrl) {
         super(ctrl);
-        this.rawImageInt = R.raw.task_111111;
-        this.imageName = "task_111111";
+        // Default to the new red web pin (task_dd1111) so any tap that beats
+        // PluginUtils.setImage(...) — e.g. Bauhub-toolbar tap or stale tool
+        // re-instantiation — still places the brand pin instead of the legacy
+        // black task_111111 stamp. Falls back to the black pin only if the
+        // bundled red asset is missing.
+        int redId = ctrl.getContext().getResources()
+                .getIdentifier("task_dd1111", "raw", ctrl.getContext().getPackageName());
+        if (redId != 0) {
+            this.rawImageInt = redId;
+            this.imageName = "task_dd1111";
+        } else {
+            this.rawImageInt = R.raw.task_111111;
+            this.imageName = "task_111111";
+        }
     }
 
     @Override
