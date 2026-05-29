@@ -233,6 +233,9 @@ public final class BauhubStampPlacement {
             } catch (Exception ignored) {
             }
         }
+        // Match WebViewer XFDF: flags="print,nozoom,norotate" + local-timezone dates. Applies to
+        // both decorative and non-decorative stamp use-cases (point pin / standalone image stamp).
+        BauhubWebStyleXfdf.applyToStamp(stampAnnot);
         pdfViewCtrl.update(stampAnnot, pageNum);
         return stampAnnot;
     }

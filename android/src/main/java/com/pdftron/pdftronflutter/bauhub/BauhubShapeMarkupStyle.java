@@ -615,6 +615,9 @@ public final class BauhubShapeMarkupStyle {
             } catch (Exception ignored) {
             }
         }
+        // Match WebViewer XFDF date format (local timezone offset) on the area shape itself.
+        // Flags stay at PDFTron default (print) — web emits the same for square/polygon.
+        BauhubWebStyleXfdf.applyToShape(annot);
         BauhubAreaPinDecoration.ensurePinForNewShape(tool, annot);
         refreshAreaMarkupViewOnly(tool, annot);
     }

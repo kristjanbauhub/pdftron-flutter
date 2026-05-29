@@ -5140,6 +5140,9 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
             [markupAnnot SetSubject:subject];
         }
 
+        // Match WebViewer XFDF: flags="print,nozoom,norotate" + local-timezone dates.
+        BauhubApplyWebStyleStampFlagsAndDates(annot);
+
         self.currentAnnotation = annot;
         [self.currentAnnotation RefreshAppearance];
 
@@ -5174,6 +5177,77 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
 }
 
 @end
+
+#pragma mark - Bauhub WebViewer-style XFDF alignment (dates + stamp flags)
+
+/**
+ * Aligns Bauhub mobile XFDF output with WebViewer:
+ *
+ *   - dates ("M", "CreationDate") use a local-timezone PDF Date string
+ *     (e.g. "D:20260529101309+03'00'") instead of UTC ("D:20260529065415Z");
+ *   - stamps (point pins + decorative area pins) carry flags="print,nozoom,norotate" so the icons
+ *     stay fixed-size and upright at any zoom/rotation (matches WebViewer; mobile previously
+ *     emitted only "print" and faked no-zoom for decorative pins via a manual rect resize).
+ *
+ * Square / polygon area markups keep PDFTron-default flags ("print") — web emits the same — so
+ * only date alignment is applied for those.
+ */
+static NSString *BauhubBuildLocalPdfDateString(NSDate *date)
+{
+    if (date == nil) {
+        date = [NSDate date];
+    }
+    NSTimeZone *tz = [NSTimeZone localTimeZone];
+    NSInteger offsetSec = [tz secondsFromGMTForDate:date];
+    char sign = offsetSec >= 0 ? '+' : '-';
+    NSInteger absMin = labs((long)offsetSec) / 60;
+    NSInteger offHrs = absMin / 60;
+    NSInteger offMin = absMin % 60;
+    NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+    fmt.timeZone = tz;
+    fmt.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+    fmt.dateFormat = @"yyyyMMddHHmmss";
+    NSString *base = [fmt stringFromDate:date];
+    return [NSString stringWithFormat:@"D:%@%c%02ld'%02ld'", base, sign, (long)offHrs, (long)offMin];
+}
+
+static void BauhubWriteLocalCreationAndModDatesOnAnnot(PTAnnot *annot)
+{
+    if (annot == nil || ![annot IsValid]) {
+        return;
+    }
+    @try {
+        PTObj *sdf = [annot GetSDFObj];
+        if (sdf == nil || ![sdf IsValid]) {
+            return;
+        }
+        NSString *pdfDate = BauhubBuildLocalPdfDateString([NSDate date]);
+        [sdf PutString:@"M" value:pdfDate];
+        [sdf PutString:@"CreationDate" value:pdfDate];
+    } @catch (__unused NSException *e) {
+    }
+}
+
+static void BauhubApplyWebStyleStampFlagsAndDates(PTAnnot *stampAnnot)
+{
+    if (stampAnnot == nil || ![stampAnnot IsValid]) {
+        return;
+    }
+    @try {
+        // PTAnnot iOS enum is e_ptprint_annot (Android uses Annot.e_print) — see existing usage
+        // in setFlagsForAnnotations around line 2890.
+        [stampAnnot SetFlag:e_ptprint_annot value:YES];
+        [stampAnnot SetFlag:e_ptno_zoom value:YES];
+        [stampAnnot SetFlag:e_ptno_rotate value:YES];
+    } @catch (__unused NSException *e) {
+    }
+    BauhubWriteLocalCreationAndModDatesOnAnnot(stampAnnot);
+}
+
+static void BauhubApplyWebStyleShapeDates(PTAnnot *shapeAnnot)
+{
+    BauhubWriteLocalCreationAndModDatesOnAnnot(shapeAnnot);
+}
 
 #pragma mark - Bauhub area pin on Comment / Attachment squares & polygons
 
@@ -5687,6 +5761,8 @@ static void BauhubStampPinForAreaShapeImpl(PTPDFViewCtrl *pdfViewCtrl, PTPDFDoc 
             [stampAnnot SetFlag:e_ptlocked value:YES];
         } @catch (__unused NSException *e) {
         }
+        // Match WebViewer XFDF: flags="print,nozoom,norotate" + local-timezone dates on the stamp.
+        BauhubApplyWebStyleStampFlagsAndDates(stampAnnot);
         [stampAnnot RefreshAppearance];
 
         [shapeAnnot SetCustomData:kBauhubAreaPinCustomKey value:@"1"];
@@ -6292,6 +6368,12 @@ static void BauhubScheduleReapplyBauhubAreaMarkupStyle(PTPDFViewCtrl *pdfViewCtr
         } @catch (__unused NSException *e) {
         }
     }
+
+    // Match WebViewer XFDF date format (local timezone offset) on the area shape itself. Flags
+    // stay at PDFTron default (print) — web emits the same for square/polygon. Both
+    // BauhubRectangleMarkupTool and BauhubPolygonMarkupTool route through this method, so the
+    // hook covers Comment / Attachment / Task squares + polygons in one place.
+    BauhubApplyWebStyleShapeDates(annot);
 }
 
 @end

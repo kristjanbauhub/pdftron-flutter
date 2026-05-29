@@ -211,6 +211,9 @@ public class BauhubPinStampTool extends Stamper {
                     }
                 }
 
+                // Match WebViewer XFDF: flags="print,nozoom,norotate" + local-timezone dates.
+                BauhubWebStyleXfdf.applyToStamp(annot);
+
                 this.setAnnot(annot, pageNum);
                 this.buildAnnotBBox();
                 this.mPdfViewCtrl.update(annot, pageNum);
