@@ -43,6 +43,7 @@ static void BauhubRestoreTranslucentAreaMarkupAppearancesInDoc(PTPDFDoc *doc);
 static int BauhubFindPageNumberForAnnotInDoc(PTPDFDoc *doc, PTAnnot *target);
 static UIImage *BauhubLoadTemplateImageNamed(NSString *name);
 static void BauhubScheduleReapplyBauhubAreaMarkupStyle(PTPDFViewCtrl *pdfViewCtrl, PTAnnot *annot, int pageNumber, NSString *subject);
+static void BauhubApplyWebStyleStampFlagsAndDates(PTAnnot *stampAnnot);
 // Forward decl so [- deleteAnnotations:] can reach it without reordering the
 // rest of the bauhub area-pin section.
 void PTBauhubRemoveDecorativePinsWhenParentShapeRemoved(PTPDFViewCtrl *pdfViewCtrl, PTPDFDoc *doc, PTAnnot *shapeAnnot, int pageNumber);
