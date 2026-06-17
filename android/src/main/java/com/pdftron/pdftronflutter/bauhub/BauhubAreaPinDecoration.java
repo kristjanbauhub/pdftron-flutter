@@ -841,4 +841,81 @@ public final class BauhubAreaPinDecoration {
             AnalyticsHandlerAdapter.getInstance().sendException(e);
         }
     }
+
+    /**
+     * Moves the decorative pin stamp linked to {@code shapeAnnot} so it tracks the shape's top-left
+     * corner after a move/resize. The pin is an independent stamp anchored at placement time; without
+     * this it stays at the corner where the shape was first drawn (the "pin left behind until reopen"
+     * ghost). Only the anchor moves — the pin keeps its current size (constant on-screen via the
+     * {@code e_no_zoom} flag).
+     *
+     * <p>Caller must already hold the doc write-lock. Updates both the stamp and the shape so the
+     * canvas repaints the pin at its new location immediately.
+     */
+    public static void repositionDecorativePinForParentShape(
+            @NonNull PDFViewCtrl ctrl, @NonNull PDFDoc doc, int pageNum, @NonNull Annot shapeAnnot) {
+        try {
+            String parentUid = bauhubAreaParentUidFromShapeAnnot(shapeAnnot);
+            if (parentUid == null || parentUid.isEmpty()) {
+                return;
+            }
+            if (pageNum < 1) {
+                pageNum = resolvePageNumberForShapeAnnot(ctrl, doc, shapeAnnot);
+            }
+            if (pageNum < 1) {
+                return;
+            }
+            Rect bbox = shapeAnnot.getRect();
+            double newAx = Math.min(bbox.getX1(), bbox.getX2()) + PAD;
+            double newAy = Math.max(bbox.getY1(), bbox.getY2()) - PAD;
+            Page page = doc.getPage(pageNum);
+            if (page == null) {
+                return;
+            }
+            int n = page.getNumAnnots();
+            for (int i = 0; i < n; i++) {
+                Annot a = page.getAnnot(i);
+                if (a == null || !a.isValid() || a.getType() != Annot.e_Stamp) {
+                    continue;
+                }
+                String dec = null;
+                try {
+                    dec = a.getCustomData(DECORATIVE_STAMP_CUSTOM_KEY);
+                } catch (Exception ignored) {
+                }
+                if (dec == null || dec.isEmpty()) {
+                    continue;
+                }
+                String puid = null;
+                try {
+                    puid = a.getCustomData(PARENT_SHAPE_UID_KEY);
+                } catch (Exception ignored) {
+                }
+                if (!parentUid.equals(puid)) {
+                    continue;
+                }
+                Rect r = a.getRect();
+                double spanW = Math.abs(r.getX2() - r.getX1());
+                double spanH = Math.abs(r.getY2() - r.getY1());
+                if (spanW < 0.5) {
+                    spanW = 0.5;
+                }
+                if (spanH < 0.5) {
+                    spanH = 0.5;
+                }
+                Rect newRect = new Rect(newAx, newAy - spanH, newAx + spanW, newAy);
+                a.setRect(newRect);
+                try {
+                    a.setCustomData(BauhubDecorativeAreaPinZoomSync.PIN_PAGE_AX_KEY, Double.toString(newAx));
+                    a.setCustomData(BauhubDecorativeAreaPinZoomSync.PIN_PAGE_AY_KEY, Double.toString(newAy));
+                } catch (Exception ignored) {
+                }
+                ctrl.update(a, pageNum);
+                break;
+            }
+            ctrl.update(shapeAnnot, pageNum);
+        } catch (Exception e) {
+            AnalyticsHandlerAdapter.getInstance().sendException(e);
+        }
+    }
 }

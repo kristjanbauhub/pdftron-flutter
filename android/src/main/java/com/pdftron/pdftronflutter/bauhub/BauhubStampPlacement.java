@@ -30,6 +30,13 @@ import java.io.File;
  */
 public final class BauhubStampPlacement {
 
+    /**
+     * Max decorative area-pin size in page points. With the {@code e_no_zoom} flag the rect drives the
+     * constant on-screen size, so this is effectively the pin's fixed size. Smaller than the legacy
+     * 25 pt cap, which rendered visibly too large.
+     */
+    private static final double MAX_AREA_PIN_PAGE_SPAN = 18.0;
+
     private BauhubStampPlacement() {
     }
 
@@ -54,8 +61,8 @@ public final class BauhubStampPlacement {
             pageHeight = tmp;
         }
 
-        double maxImageWidthPage = 25.0;
-        double maxImageHeightPage = 25.0;
+        double maxImageWidthPage = MAX_AREA_PIN_PAGE_SPAN;
+        double maxImageHeightPage = MAX_AREA_PIN_PAGE_SPAN;
         if (pageWidth < maxImageWidthPage) {
             maxImageWidthPage = pageWidth;
         }

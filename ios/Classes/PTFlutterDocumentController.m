@@ -457,6 +457,9 @@ static void PT_installResizingToolbarLayoutCrashGuard(void)
         NSError *reapplyError = nil;
         [self.pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc * _Nullable doc) {
             PTBauhubReapplyTranslucentAreaMarkupAppearanceForAnnot(annotation, doc);
+            // Move the linked decorative pin to the shape's new corner so it follows a drag/resize
+            // instead of being left behind until the document is reopened.
+            PTBauhubRepositionDecorativePinWhenParentShapeMoved(self.pdfViewCtrl, doc, annotation, (int)pageNumber);
         } error:&reapplyError];
         if (reapplyError) {
             NSLog(@"BauhubReapply (annotationModified): %@", reapplyError.localizedDescription);

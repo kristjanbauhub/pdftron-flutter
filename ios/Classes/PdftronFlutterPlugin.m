@@ -34,7 +34,6 @@
 static void BauhubDecorateAllImportedAreaPins(PTPDFViewCtrl *pdfViewCtrl, PTPDFDoc *doc);
 static NSString *BauhubWebTaskPinImageName(void);
 static void BauhubScheduleDecorativeAreaPinZoomSync(PTPDFViewCtrl *pdfViewCtrl);
-static void BauhubSyncDecorativeAreaPinSizesNow(PTPDFViewCtrl *pdfViewCtrl);
 void BauhubSetAreaMarkupPresetColors(unsigned fillArgb, unsigned strokeArgb);
 static BOOL BauhubTryUint32FromFlutterColorArg(id value, NSUInteger *outArgb);
 static void BauhubApplyAreaToolDrawPreviewDefaults(PTPDFViewCtrl *pdfViewCtrl);
@@ -5258,7 +5257,6 @@ static NSString * const kBauhubParentShapeUidKey = @"BauhubParentShapeUid";
 /// Fixed PDF corner when resizing (left = min x, top = max y), same as web pin box top-left in page space.
 static NSString * const kBauhubPinPageAx = @"BauhubPinPageAx";
 static NSString * const kBauhubPinPageAy = @"BauhubPinPageAy";
-static const double kBauhubAreaPinMaxPageSpan = 25.0;
 
 void PTBauhubRemoveDecorativePinsWhenParentShapeRemoved(
         PTPDFViewCtrl *pdfViewCtrl,
@@ -5332,6 +5330,95 @@ void PTBauhubRemoveDecorativePinsWhenParentShapeRemoved(
     if (toRemove.count > 0) {
         [pdfViewCtrl Update:YES];
     }
+}
+
+void PTBauhubRepositionDecorativePinWhenParentShapeMoved(
+        PTPDFViewCtrl *pdfViewCtrl,
+        PTPDFDoc *doc,
+        PTAnnot *shapeAnnot,
+        int pageNumber) {
+    if (!pdfViewCtrl || !doc || !shapeAnnot || ![shapeAnnot IsValid]) {
+        return;
+    }
+    PTAnnotType t = [shapeAnnot GetType];
+    if (t != e_ptSquare && t != e_ptPolygon) {
+        return;
+    }
+    PTMarkup *mk = [[PTMarkup alloc] initWithAnn:shapeAnnot];
+    if (![mk IsValid]) {
+        return;
+    }
+    NSString *subj = [mk GetSubject];
+    if (!([subj isEqualToString:@"Comment"] || [subj isEqualToString:@"Attachment"] ||
+          [subj isEqualToString:@"Task"])) {
+        return;
+    }
+    NSString *parentUid = nil;
+    @try {
+        PTObj *uidObj = [shapeAnnot GetUniqueID];
+        if ([uidObj IsValid] && [uidObj IsString]) {
+            parentUid = [uidObj GetAsPDFText];
+        }
+    } @catch (__unused NSException *e) {
+    }
+    if (parentUid.length == 0) {
+        return;
+    }
+    if (pageNumber < 1) {
+        pageNumber = BauhubFindPageNumberForAnnotInDoc(doc, shapeAnnot);
+    }
+    if (pageNumber < 1) {
+        return;
+    }
+    PTPage *page = [doc GetPage:pageNumber];
+    if (!page || ![page IsValid]) {
+        return;
+    }
+    PTPDFRect *bbox = [shapeAnnot GetRect];
+    double newAx = MIN([bbox GetX1], [bbox GetX2]) + 4.0;
+    double newAy = MAX([bbox GetY1], [bbox GetY2]) - 4.0;
+    int n = (int)[page GetNumAnnots];
+    for (int i = 0; i < n; i++) {
+        PTAnnot *a = [page GetAnnot:i];
+        if (![a IsValid] || [a GetType] != e_ptStamp) {
+            continue;
+        }
+        NSString *dec = nil;
+        @try {
+            dec = [a GetCustomData:kBauhubDecorativeAreaPinKey];
+        } @catch (__unused NSException *e) {
+        }
+        if (dec.length == 0) {
+            continue;
+        }
+        NSString *puid = nil;
+        @try {
+            puid = [a GetCustomData:kBauhubParentShapeUidKey];
+        } @catch (__unused NSException *e) {
+        }
+        if (puid == nil || ![puid isEqualToString:parentUid]) {
+            continue;
+        }
+        PTPDFRect *r = [a GetRect];
+        double spanW = fabs([r GetX2] - [r GetX1]);
+        double spanH = fabs([r GetY2] - [r GetY1]);
+        if (spanW < 0.5) {
+            spanW = 0.5;
+        }
+        if (spanH < 0.5) {
+            spanH = 0.5;
+        }
+        PTPDFRect *newRect = [[PTPDFRect alloc] initWithX1:newAx y1:newAy - spanH x2:newAx + spanW y2:newAy];
+        [a SetRect:newRect];
+        @try {
+            [a SetCustomData:kBauhubPinPageAx value:[NSString stringWithFormat:@"%.8f", newAx]];
+            [a SetCustomData:kBauhubPinPageAy value:[NSString stringWithFormat:@"%.8f", newAy]];
+        } @catch (__unused NSException *e) {
+        }
+        [pdfViewCtrl UpdateWithAnnot:a page_num:pageNumber];
+        break;
+    }
+    [pdfViewCtrl UpdateWithAnnot:shapeAnnot page_num:pageNumber];
 }
 
 void PTBauhubSetDecorativePinsVisibilityForParentShape(
@@ -5651,8 +5738,10 @@ static void BauhubStampPinForAreaShapeImpl(PTPDFViewCtrl *pdfViewCtrl, PTPDFDoc 
         double maxY = MAX(y1, y2);
 
         PTPDFRect *stampRect = [[PTPDFRect alloc] initWithX1:0 y1:0 x2:image.size.width y2:image.size.height];
-        double maxWidth = 25.0;
-        double maxHeight = 25.0;
+        // Decorative area-pin size in page points. With the e_ptno_zoom flag the rect drives the
+        // constant on-screen size; smaller than the legacy 25 pt cap, which rendered too large.
+        double maxWidth = 18.0;
+        double maxHeight = 18.0;
 
         PTRotate ctrlRotation = [pdfViewCtrl GetRotation];
         PTRotate pageRotation = [page GetRotation];
@@ -5838,112 +5927,18 @@ static void BauhubDecorateAllImportedAreaPins(PTPDFViewCtrl *pdfViewCtrl, PTPDFD
     BauhubScheduleDecorativeAreaPinZoomSync(pdfViewCtrl);
 }
 
-static dispatch_block_t sBauhubPinZoomBlock;
-
+/**
+ * No-op: decorative area-pin stamps carry the real `e_ptno_zoom` flag (set in
+ * `BauhubApplyWebStyleStampFlagsAndDates`), so PDFTron keeps them at a constant on-screen size
+ * natively — exactly like the web viewer (XFDF `flags="print,nozoom,norotate"`).
+ *
+ * This previously *faked* no-zoom by resizing each pin's page-space rect on every zoom change. With
+ * the flag now in place that manual resize fought the flag: zooming in shrank the page-rect, and
+ * because the flag ties on-screen size to the rect, the pin visibly shrank. The `kBauhubPinPageAx/Ay`
+ * keys are still used as the pin's fixed corner anchor.
+ */
 static void BauhubScheduleDecorativeAreaPinZoomSync(PTPDFViewCtrl *pdfViewCtrl) {
-    if (!pdfViewCtrl) {
-        return;
-    }
-    if (sBauhubPinZoomBlock) {
-        dispatch_block_cancel(sBauhubPinZoomBlock);
-        sBauhubPinZoomBlock = nil;
-    }
-    __weak PTPDFViewCtrl *weakCtrl = pdfViewCtrl;
-    sBauhubPinZoomBlock = dispatch_block_create(0, ^{
-        sBauhubPinZoomBlock = nil;
-        PTPDFViewCtrl *c = weakCtrl;
-        if (c) {
-            BauhubSyncDecorativeAreaPinSizesNow(c);
-        }
-    });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(48 * NSEC_PER_MSEC)), dispatch_get_main_queue(), sBauhubPinZoomBlock);
-}
-
-static void BauhubSyncDecorativeAreaPinSizesNow(PTPDFViewCtrl *pdfViewCtrl) {
-    if (!pdfViewCtrl) {
-        return;
-    }
-    CGFloat px = 24.0f * [UIScreen mainScreen].scale;
-    NSError *err = nil;
-    [pdfViewCtrl DocLock:YES withBlock:^(PTPDFDoc *doc) {
-        int pageCount = (int)[doc GetPageCount];
-        for (int p = 1; p <= pageCount; p++) {
-            PTPage *page = [doc GetPage:p];
-            int n = (int)[page GetNumAnnots];
-            for (int i = 0; i < n; i++) {
-                PTAnnot *a = [page GetAnnot:i];
-                if (![a IsValid] || [a GetType] != e_ptStamp) {
-                    continue;
-                }
-                NSString *dec = nil;
-                @try {
-                    dec = [a GetCustomData:kBauhubDecorativeAreaPinKey];
-                } @catch (__unused NSException *e) {
-                    dec = nil;
-                }
-                if (dec == nil || dec.length == 0) {
-                    continue;
-                }
-                PTPDFRect *screen = [pdfViewCtrl GetScreenRectForAnnot:a page_num:p];
-                if (!screen) {
-                    continue;
-                }
-                double sw = fabs([screen GetX2] - [screen GetX1]);
-                double sh = fabs([screen GetY2] - [screen GetY1]);
-                if (sw < 2.0 && sh < 2.0) {
-                    continue;
-                }
-                double scx = ([screen GetX1] + [screen GetX2]) / 2.0;
-                double scy = ([screen GetY1] + [screen GetY2]) / 2.0;
-
-                PTPDFPoint *pc = [pdfViewCtrl ConvScreenPtToPagePt:[[PTPDFPoint alloc] initWithPx:scx py:scy] page_num:p];
-                PTPDFPoint *prx = [pdfViewCtrl ConvScreenPtToPagePt:[[PTPDFPoint alloc] initWithPx:scx + px py:scy] page_num:p];
-                PTPDFPoint *pry = [pdfViewCtrl ConvScreenPtToPagePt:[[PTPDFPoint alloc] initWithPx:scx py:scy + px] page_num:p];
-                double spanH = hypot([prx getX] - [pc getX], [prx getY] - [pc getY]);
-                double spanV = hypot([pry getX] - [pc getX], [pry getY] - [pc getY]);
-                double span = MAX(spanH, spanV);
-                if (span < 0.25) {
-                    span = 0.25;
-                }
-                if (span > kBauhubAreaPinMaxPageSpan) {
-                    span = kBauhubAreaPinMaxPageSpan;
-                }
-
-                double ax;
-                double ay;
-                @try {
-                    NSString *sx = [a GetCustomData:kBauhubPinPageAx];
-                    NSString *sy = [a GetCustomData:kBauhubPinPageAy];
-                    if (sx.length > 0 && sy.length > 0) {
-                        ax = [sx doubleValue];
-                        ay = [sy doubleValue];
-                    } else {
-                        PTPDFRect *pr = [a GetRect];
-                        ax = MIN([pr GetX1], [pr GetX2]);
-                        ay = MAX([pr GetY1], [pr GetY2]);
-                        [a SetCustomData:kBauhubPinPageAx value:[NSString stringWithFormat:@"%.8f", ax]];
-                        [a SetCustomData:kBauhubPinPageAy value:[NSString stringWithFormat:@"%.8f", ay]];
-                    }
-                } @catch (__unused NSException *e) {
-                    PTPDFRect *pr = [a GetRect];
-                    ax = MIN([pr GetX1], [pr GetX2]);
-                    ay = MAX([pr GetY1], [pr GetY2]);
-                }
-
-                double left = ax;
-                double top = ay;
-                double right = left + span;
-                double bottom = top - span;
-                PTPDFRect *newRect = [[PTPDFRect alloc] initWithX1:left y1:bottom x2:right y2:top];
-                [a SetRect:newRect];
-                [a RefreshAppearance];
-                [pdfViewCtrl UpdateWithAnnot:a page_num:p];
-            }
-        }
-    } error:&err];
-    if (err) {
-        NSLog(@"BauhubSyncDecorativeAreaPinSizesNow: %@", err);
-    }
+    (void)pdfViewCtrl;
 }
 
 #pragma mark - BauhubRectangleMarkupTool

@@ -208,6 +208,48 @@ public class ViewerImpl {
     }
 
 
+    /**
+     * Moves each modified Bauhub area shape's linked decorative pin to the shape's new top-left
+     * corner so the pin follows a drag/resize instead of being "left behind" until the document is
+     * reopened. Runs synchronously under a short write lock; the debounced translucent-AP reapply
+     * that follows re-decorates idempotently (the pin is now near the new corner, so it dedups out).
+     */
+    private void repositionDecorativePinsForModifiedAreas(@Nullable Map<Annot, Integer> map) {
+        if (map == null || map.isEmpty()) {
+            return;
+        }
+        PDFViewCtrl pdfViewCtrl = mViewerComponent.getPdfViewCtrl();
+        if (pdfViewCtrl == null) {
+            return;
+        }
+        boolean locked = false;
+        try {
+            PDFDoc doc = pdfViewCtrl.getDoc();
+            if (doc == null || !pdfViewCtrl.docTryLock(2000)) {
+                return;
+            }
+            locked = true;
+            for (Map.Entry<Annot, Integer> e : map.entrySet()) {
+                Annot a = e.getKey();
+                Integer p = e.getValue();
+                if (a == null || !a.isValid() || !BauhubShapeMarkupStyle.isBauhubAreaShapeAnnot(a)) {
+                    continue;
+                }
+                int pageNum = p != null ? p : -1;
+                BauhubAreaPinDecoration.repositionDecorativePinForParentShape(pdfViewCtrl, doc, pageNum, a);
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        } finally {
+            if (locked) {
+                try {
+                    pdfViewCtrl.docUnlock();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
     private ToolManager.AnnotationModificationListener mAnnotationModificationListener = new ToolManager.AnnotationModificationListener() {
         @Override
         public void onAnnotationsAdded(Map<Annot, Integer> map) {
@@ -232,6 +274,7 @@ public class ViewerImpl {
             // [scheduleBauhubTranslucentAreaReapplyAfterOtherAnnotChange] coalesces drag-end +
             // any subsequent modify events; the visual change is imperceptible to the user.
             if (containsBauhubAreaAnnotation(map)) {
+                repositionDecorativePinsForModifiedAreas(map);
                 scheduleBauhubTranslucentAreaReapplyAfterOtherAnnotChange();
             }
 

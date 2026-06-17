@@ -634,6 +634,17 @@ FOUNDATION_EXTERN void PTBauhubRemoveDecorativePinsWhenParentShapeRemoved(
     int pageNumber);
 
 /**
+ * When a Bauhub area shape is moved/resized, move its linked decorative pin stamp to the shape's new
+ * top-left corner so the pin follows the shape instead of being "left behind" until reopen (same as
+ * Android). Only the anchor moves; the pin keeps its size (constant on-screen via the no-zoom flag).
+ */
+FOUNDATION_EXTERN void PTBauhubRepositionDecorativePinWhenParentShapeMoved(
+    PTPDFViewCtrl *pdfViewCtrl,
+    PTPDFDoc *doc,
+    PTAnnot *shapeAnnot,
+    int pageNumber);
+
+/**
  * Mirrors a parent shape's hide/show onto every linked decorative pin stamp on the same
  * page. Activity-feed filters (type toggles + "Näita lahendatud") use this so a hidden
  * comment / attachment / task area never leaves its corner pin floating on the canvas.
