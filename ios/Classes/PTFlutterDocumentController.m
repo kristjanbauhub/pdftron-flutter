@@ -117,8 +117,26 @@ static void PT_installResizingToolbarLayoutCrashGuard(void)
     self.thumbnailSliderEnabled = NO;
 }
 
-- (void)viewWillDisappear:(BOOL)animated{
+- (void)viewWillDisappear:(BOOL)animated
+{
+    // PTDocumentBaseViewController does its own teardown here (document
+    // closing/saving, tool and observation state). Skipping super left that
+    // work to -dealloc, where the objects it reaches for may already be gone:
+    // closing the viewer crashed in -[PTDocumentBaseViewController dealloc]
+    // with a bad access while invalidating a key-value observation.
+    [super viewWillDisappear:animated];
+
     [[NSNotificationCenter defaultCenter] removeObserver:self.plugin name:UIMenuControllerDidHideMenuNotification object:nil];
+}
+
+- (void)dealloc
+{
+    // Registered against the undo/redo manager in -viewDidLoad. Matched on
+    // name only: the manager is reached through self.toolManager, which must
+    // not be touched this late in the object's life.
+    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    [center removeObserver:self name:PTUndoRedoManagerDidRedoNotification object:nil];
+    [center removeObserver:self name:PTUndoRedoManagerDidUndoNotification object:nil];
 }
 
 - (void)viewWillLayoutSubviews
