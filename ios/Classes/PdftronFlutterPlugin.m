@@ -1664,8 +1664,38 @@ static NSString *BauhubDenormalizeBauhubAreaMarkupXfdfForMobileImport(NSString *
 {
     if (self.isWidgetView)
     {
+        // Close the document while the navigation and tabbed controllers around
+        // it are still alive. Left to their deallocation, the document
+        // controller was freed last, from inside -[UINavigationController
+        // dealloc], and invalidated key-value observations on objects that were
+        // already gone: EXC_BAD_ACCESS in -[PTKeyValueObservation invalidate].
+        @autoreleasepool {
+            [self removeDocumentControllers];
+        }
         [self.tabbedDocumentViewController.navigationController willMoveToParentViewController:nil];
         [self.tabbedDocumentViewController.navigationController removeFromParentViewController];
+    }
+}
+
+- (void)removeDocumentControllers
+{
+    PTTabbedDocumentViewController *tabbedController = self.tabbedDocumentViewController;
+    PTDocumentTabManager *tabManager = tabbedController.tabManager;
+    for (PTDocumentTabItem *item in [tabManager.items copy]) {
+        if (item != tabManager.selectedItem) {
+            [tabManager removeItem:item];
+        }
+    }
+    if (tabManager.selectedItem) {
+        [tabManager removeItem:tabManager.selectedItem];
+    }
+    // With tabs disabled the document controller is not always backed by a tab item.
+    for (UIViewController *child in [tabbedController.childViewControllers copy]) {
+        if ([child isKindOfClass:[PTDocumentBaseViewController class]]) {
+            [child willMoveToParentViewController:nil];
+            [child.view removeFromSuperview];
+            [child removeFromParentViewController];
+        }
     }
 }
 
